@@ -19,9 +19,6 @@ jobs:
           - target: windows
             goos: windows
             goarch: amd64
-          - target: darwin
-            goos: darwin
-            goarch: amd64
 
     steps:
       - name: Checkout
@@ -43,6 +40,12 @@ jobs:
         run: npm run build
         working-directory: frontend
 
+      - name: Install webkit2gtk dev packages (linux only)
+        if: matrix.target == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2tk-4.0-dev libgtk-3-dev
+
       - name: Build Wails app
         shell: bash
         env:
@@ -61,7 +64,8 @@ jobs:
         shell: bash
         run: |
           set -e
-          curl -fsSL -o /tmp/appimagetool https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+          curl -fsSL -o /tmp/appimagetool \
+            https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
           chmod +x /tmp/appimagetool
           APPDIR="$HOME/做T全能终端.AppDir"
           mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/share/applications"
@@ -78,12 +82,7 @@ jobs:
           Categories=Utility;Development;
           EOF
           cp "$APPDIR/做T全能终端.desktop" "$APPDIR/usr/share/applications/"
-          /tmp/appimagetool --appimage-extract >/dev/null 2>&1 || true
-          (cd /tmp && ./appimagetool-x86_64.AppImage --appimage-extract >/dev/null 2>&1)
-          cp /tmp/squashfs-runtime/AppRun "$APPDIR/"
-          chmod +x "$APPDIR/AppRun"
-          (cd "$APPDIR" && /tmp/squashfs-runtime/AppRun ../做T全能终端-x86_64.AppImage)
-          mv -f 做T全能终端-x86_64.AppImage build/bin/做T全能终端-x86_64.AppImage
+          /tmp/appimagetool "$APPDIR" build/bin/做T全能终端-x86_64.AppImage
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -111,5 +110,4 @@ jobs:
             做T全能终端-linux/做T全能终端
             做T全能终端-linux/做T全能终端-x86_64.AppImage
             做T全能终端-windows/做T全能终端.exe
-            做T全能终端-darwin/做T全能终端
           generate_release_notes: true
