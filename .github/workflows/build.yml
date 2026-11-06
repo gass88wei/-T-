@@ -1,0 +1,115 @@
+name: Build
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux
+            goos: linux
+            goarch: amd64
+          - target: windows
+            goos: windows
+            goarch: amd64
+          - target: darwin
+            goos: darwin
+            goarch: amd64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+
+      - name: Install Wails
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.17.1
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: frontend
+
+      - name: Build frontend
+        run: npm run build
+        working-directory: frontend
+
+      - name: Build Wails app
+        shell: bash
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          export PATH="$HOME/go/bin:$PATH"
+          if [ "${{ matrix.target }}" = "linux" ]; then
+            wails build -tags webkit2gtk1
+          else
+            wails build
+          fi
+
+      - name: Package Linux AppImage
+        if: matrix.target == 'linux'
+        shell: bash
+        run: |
+          set -e
+          curl -fsSL -o /tmp/appimagetool https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x /tmp/appimagetool
+          APPDIR="$HOME/做T全能终端.AppDir"
+          mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/share/applications"
+          cp build/bin/做T全能终端 "$APPDIR/usr/bin/做T全能终端"
+          cp build/appicon.png "$APPDIR/做T全能终端.png"
+          cat > "$APPDIR/做T全能终端.desktop" <<EOF
+          [Desktop Entry]
+          Version=1.0
+          Type=Application
+          Name=做T全能终端
+          Icon=做T全能终端
+          Exec=做T全能终端
+          Terminal=false
+          Categories=Utility;Development;
+          EOF
+          cp "$APPDIR/做T全能终端.desktop" "$APPDIR/usr/share/applications/"
+          /tmp/appimagetool --appimage-extract >/dev/null 2>&1 || true
+          (cd /tmp && ./appimagetool-x86_64.AppImage --appimage-extract >/dev/null 2>&1)
+          cp /tmp/squashfs-runtime/AppRun "$APPDIR/"
+          chmod +x "$APPDIR/AppRun"
+          (cd "$APPDIR" && /tmp/squashfs-runtime/AppRun ../做T全能终端-x86_64.AppImage)
+          mv -f 做T全能终端-x86_64.AppImage build/bin/做T全能终端-x86_64.AppImage
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: 做T全能终端-${{ matrix.target }}
+          path: |
+            build/bin/做T全能终端*
+          if-no-files-found: ignore
+
+  release:
+    needs: build
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: 做T全能终端 ${{ github.ref_name }}
+          files: |
+            做T全能终端-linux/做T全能终端
+            做T全能终端-linux/做T全能终端-x86_64.AppImage
+            做T全能终端-windows/做T全能终端.exe
+            做T全能终端-darwin/做T全能终端
+          generate_release_notes: true
