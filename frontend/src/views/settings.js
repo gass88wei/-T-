@@ -220,7 +220,7 @@ export function render(root, ctx) {
     <div class="card-head"><div class="card-title">关于</div></div>
     <div class="card-body">
       <div class="hint">
-        <strong>做T全能终端 v1.1.0</strong><br>
+        <strong>做T全能终端 v1.1.1</strong><br>
         本地离线运行，所有数据保存在你自己的电脑上，不上传任何服务器。<br>
         做T成本核算：净值盈亏冲减持仓成本（摊薄）；加仓按加权平均重算；减仓成本不变。<br>
         手续费按 A 股规则计算：佣金双边（含最低值）、印花税仅卖出、过户费双边。<br><br>

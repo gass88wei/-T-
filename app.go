@@ -170,4 +170,4 @@ func (a *App) ImportData() (string, error) {
 }
 
 // AppVersion 供界面显示版本号。
-func (a *App) AppVersion() string { return "1.1.0" }
+func (a *App) AppVersion() string { return "1.1.1" }
