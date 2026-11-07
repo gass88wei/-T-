@@ -2,12 +2,13 @@
 
 import { money, signed, num, esc, uid, today, nowStamp, trendClass } from '../lib/util.js';
 import { fireTarget, lifeHours } from '../lib/compound.js';
+import { analyze, hourlyWage, HOURS_PER_MONTH } from '../lib/wish.js';
 import { commit } from '../lib/store.js';
 
 const SUBTABS = [
   { id: 'overview', label: '🏠 概览' },
   { id: 'bill', label: '💰 记账' },
-  { id: 'goal', label: '🎯 目标' },
+  { id: 'goal', label: '🎯 想要清单' },
   { id: 'stats', label: '📊 统计' },
 ];
 
@@ -128,8 +129,8 @@ function renderOverview(root, ctx) {
   goalCard.className = 'card';
   goalCard.innerHTML = `
     <div class="card-head">
-      <div class="card-title">⚡ 进行中的目标</div>
-      <button class="btn btn-sm" id="go-goal">管理目标 +</button>
+      <div class="card-title">🎯 想要清单<span class="sub">按真实代价折合工时排序</span></div>
+      <button class="btn btn-sm" id="go-goal">管理清单 +</button>
     </div>
     <div class="card-body" id="goal-body"></div>
   `;
@@ -140,29 +141,43 @@ function renderOverview(root, ctx) {
   });
 
   const goalBody = goalCard.querySelector('#goal-body');
+  const salary = num(f.settings.monthlySalary);
+  const oppRate = num(f.settings.yieldRate, 4);
+
   const active = f.goals
     .map((g) => {
       const cur = (g.records || []).reduce((a, r) => a + num(r.amount), 0);
-      const pct = num(g.target) > 0 ? Math.min((cur / num(g.target)) * 100, 100) : 0;
-      return { g, cur, pct };
+      const price = num(g.price ?? g.target);
+      const pct = price > 0 ? Math.min((cur / price) * 100, 100) : 0;
+      const a = analyze(g, salary, oppRate);
+      return { g, cur, pct, price, ...a };
     })
-    .filter((x) => x.pct < 100);
+    .filter((x) => x.pct < 100)
+    .sort((a, b) => (b.time ? b.time.hours : -1) - (a.time ? a.time.hours : -1));
 
   if (!active.length) {
-    goalBody.innerHTML = '<div class="empty">暂无进行中的目标<br><span class="tiny">在「目标」页面添加，如买车、旅游基金</span></div>';
+    goalBody.innerHTML = '<div class="empty">暂无进行中的目标<br><span class="tiny">在「想要清单」里添加，如新电脑、相机</span></div>';
   } else {
     goalBody.innerHTML = `<div class="grid g2">${active
+      .slice(0, 4)
       .map(
-        ({ g, cur, pct }) => `
+        ({ g, cur, pct, price, cost, time, verdict: v }) => `
       <div class="stat">
-        <div class="flex-between" style="margin-bottom:6px">
+        <div class="flex-between" style="margin-bottom:4px">
           <span class="strong">${esc(g.name)}</span>
-          <span class="strong down">${pct.toFixed(0)}%</span>
+          <span class="tag tag-${v.tone === 'up' ? 'up' : v.tone === 'down' ? 'down' : 'flat'}">${v.text}</span>
+        </div>
+        <div class="tiny muted" style="margin-bottom:6px">
+          标价 ¥${money(price, 0)} · 用 ${num(g.years)} 年${num(g.annualHold) > 0 ? ` · 每年 ¥${money(g.annualHold, 0)}` : ''}
+        </div>
+        <div class="flex-between tiny" style="margin-bottom:6px">
+          <span>真实代价 <strong class="up">¥${money(cost.real, 0)}</strong></span>
+          <span class="muted">${time ? time.hours.toFixed(1) + ' 小时' : '未填月薪'}</span>
         </div>
         <div class="bar" style="margin-bottom:6px"><div class="bar-fill" style="width:${pct}%"></div></div>
         <div class="flex-between tiny muted">
           <span>已存 ¥${money(cur, 0)}</span>
-          <span>还需 ¥${money(Math.max(num(g.target) - cur, 0), 0)}</span>
+          <span>${pct.toFixed(0)}%</span>
         </div>
       </div>`
       )
@@ -205,49 +220,78 @@ function renderOverview(root, ctx) {
     window.__toast('已记账', 'ok');
   });
 
-  // 生命价值计算
+  // 随手算（不建目标）
   const lifeCard = document.createElement('div');
   lifeCard.className = 'card';
+  const hw = hourlyWage(salary);
   lifeCard.innerHTML = `
-    <div class="card-head"><div class="card-title">⏳ 这件东西值我多少小时</div></div>
+    <div class="card-head">
+      <div class="card-title">⏳ 随手算<span class="sub">不建目标，临时比一比</span></div>
+      ${salary > 0 ? `<span class="tiny muted">时薪 ¥${hw.toFixed(2)}</span>` : '<button class="btn btn-sm" id="lf-salary-set">先设月薪</button>'}
+    </div>
     <div class="card-body">
       <div class="form-row" style="margin-bottom:10px">
-        <div class="field"><label>月薪（元）</label><input type="number" id="lf-salary" placeholder="8000" class="mono"></div>
         <div class="field"><label>商品价格（元）</label><input type="number" id="lf-price" placeholder="3000" class="mono"></div>
+        <div class="field"><label>用几年</label><input type="number" id="lf-years" placeholder="3" value="3" class="mono"></div>
+        <div class="field"><label>每年持有成本（元）</label><input type="number" id="lf-hold" placeholder="0" value="0" class="mono"></div>
       </div>
-      <div id="lf-out"><div class="empty" style="padding:16px">填入后自动计算</div></div>
+      <div id="lf-out"><div class="empty" style="padding:16px">填入价格后自动计算</div></div>
     </div>
   `;
   root.appendChild(lifeCard);
 
+  const salaryBtn = lifeCard.querySelector('#lf-salary-set');
+  if (salaryBtn) {
+    salaryBtn.addEventListener('click', () => {
+      const v = prompt('请输入月薪（元），用于把所有开销折合成工时:', '8000');
+      if (v === null) return;
+      const n = Number(v);
+      if (!Number.isFinite(n) || n <= 0) return window.__toast('请输入有效月薪', 'err');
+      f.settings.monthlySalary = n;
+      commit();
+    });
+  }
+
   const lfOut = lifeCard.querySelector('#lf-out');
   const drawLife = () => {
-    const salary = num(lifeCard.querySelector('#lf-salary').value);
     const price = num(lifeCard.querySelector('#lf-price').value);
-    if (salary <= 0 || price <= 0) {
-      lfOut.innerHTML = '<div class="empty" style="padding:16px">填入后自动计算</div>';
+    const years = num(lifeCard.querySelector('#lf-years').value) || 1;
+    const hold = num(lifeCard.querySelector('#lf-hold').value);
+    if (price <= 0) {
+      lfOut.innerHTML = '<div class="empty" style="padding:16px">填入价格后自动计算</div>';
       return;
     }
-    const h = lifeHours(salary, price);
+    const a = analyze({ price, years, annualHold: hold }, salary, oppRate);
+    const { cost, time, verdict: v } = a;
     lfOut.innerHTML = `
-      <div class="grid g3">
+      <div class="grid g3" style="margin-bottom:10px">
+        <div class="stat" style="text-align:center">
+          <div class="stat-label">真实代价</div>
+          <div class="stat-value down">¥${money(cost.real, 0)}</div>
+          <div class="tiny muted" style="margin-top:3px">含机会成本 ¥${money(cost.oppCost, 0)}</div>
+        </div>
         <div class="stat" style="text-align:center">
           <div class="stat-label">需要工作</div>
-          <div class="stat-value down">${h.toFixed(1)} 小时</div>
+          <div class="stat-value ${v.tone === 'up' ? 'up' : 'down'}">${time ? money(time.hours, 1) : '—'} 小时</div>
+          <div class="tiny muted" style="margin-top:3px">${time ? money(time.days, 1) + ' 个工作日' : '需先设月薪'}</div>
         </div>
         <div class="stat" style="text-align:center">
-          <div class="stat-label">折合工作日</div>
-          <div class="stat-value sm">${(h / 8).toFixed(1)} 天</div>
+          <div class="stat-label">每天成本</div>
+          <div class="stat-value sm">¥${money(cost.perDay, 2)}</div>
+          <div class="tiny muted" style="margin-top:3px">按 ${years} 年摊</div>
         </div>
-        <div class="stat" style="text-align:center">
-          <div class="stat-label">折合周</div>
-          <div class="stat-value sm">${(h / 8 / 5).toFixed(1)} 周</div>
-        </div>
+      </div>
+      <div class="hint">
+        标价 ¥${money(cost.price, 0)}${cost.holdTotal > 0 ? ` + 持有 ¥${money(cost.holdTotal, 0)}（${years} 年 × ¥${money(cost.annualHold, 0)}）` : ''}
+        = 现金支出 ¥${money(cost.total, 0)}；
+        这笔钱若不花、按年化 ${oppRate}% 复利 ${years} 年后多出 ¥${money(cost.oppCost, 0)}，所以真实代价是 <strong>¥${money(cost.real, 0)}</strong>。
+        评价：<strong>${v.text}</strong>
       </div>
     `;
   };
-  lifeCard.querySelector('#lf-salary').addEventListener('input', drawLife);
-  lifeCard.querySelector('#lf-price').addEventListener('input', drawLife);
+  ['#lf-price', '#lf-years', '#lf-hold'].forEach((sel) => {
+    lifeCard.querySelector(sel).addEventListener('input', drawLife);
+  });
 }
 
 // ============ 记账 ============
@@ -339,68 +383,159 @@ function renderBill(root, ctx) {
   }
 }
 
-// ============ 目标 ============
+// ============ 想要清单 ============
 function renderGoal(root, ctx) {
   const f = fin(ctx);
   const st = ctx.viewState;
+  if (!st.goalForm) st.goalForm = { name: '', price: '', years: '3', annualHold: '' };
 
+  const salary = num(f.settings.monthlySalary);
+  const oppRate = num(f.settings.yieldRate, 4);
+  const hw = hourlyWage(salary);
+
+  // 月薪条
+  const salaryCard = document.createElement('div');
+  salaryCard.className = 'card';
+  salaryCard.innerHTML = `
+    <div class="card-body">
+      <div class="flex-between">
+        <div>
+          <div class="tiny muted">你的时薪（月薪 ÷ 21.75 天 ÷ 8 小时）</div>
+          <div class="hero-value" style="font-size:24px;margin-top:2px">
+            ${salary > 0 ? `¥${hw.toFixed(2)}<span class="tiny muted" style="font-size:12px;font-weight:400"> / 小时</span>` : '<span class="muted" style="font-size:15px">还没填月薪</span>'}
+          </div>
+          ${salary > 0 ? `<div class="tiny muted" style="margin-top:3px">月薪 ¥${money(salary, 0)} · 机会成本按年化 ${oppRate}% 算</div>` : ''}
+        </div>
+        <button class="btn btn-sm" id="go-salary">${salary > 0 ? '修改月薪' : '填写月薪'}</button>
+      </div>
+    </div>
+  `;
+  root.appendChild(salaryCard);
+  salaryCard.querySelector('#go-salary').addEventListener('click', () => {
+    const v = prompt('请输入月薪（元）:', salary > 0 ? salary : 8000);
+    if (v === null) return;
+    const n = Number(v);
+    if (!Number.isFinite(n) || n <= 0) return window.__toast('请输入有效月薪', 'err');
+    f.settings.monthlySalary = n;
+    commit();
+  });
+
+  // 添加
   const addCard = document.createElement('div');
   addCard.className = 'card';
   addCard.innerHTML = `
-    <div class="card-head"><div class="card-title">🎯 添加目标</div></div>
+    <div class="card-head"><div class="card-title">➕ 添加想要的东西</div></div>
     <div class="card-body">
-      <div class="form-row">
-        <div class="field"><label>目标名称</label><input type="text" id="go-name" placeholder="如 新电脑" value="${esc(st.goalForm.name)}"></div>
-        <div class="field"><label>目标金额</label><input type="number" id="go-target" placeholder="0.00" class="mono" value="${esc(st.goalForm.target)}"></div>
+      <div class="form-row" style="margin-bottom:10px">
+        <div class="field"><label>名称</label><input type="text" id="go-name" placeholder="如 新电脑" value="${esc(st.goalForm.name)}"></div>
+        <div class="field"><label>价格（元）</label><input type="number" id="go-price" placeholder="0.00" class="mono" value="${esc(st.goalForm.price)}"></div>
+        <div class="field"><label>打算用几年</label><input type="number" id="go-years" placeholder="3" class="mono" value="${esc(st.goalForm.years)}"></div>
+        <div class="field"><label>每年持有成本（元）</label><input type="number" id="go-hold" placeholder="保养/保险/订阅，没有填 0" class="mono" value="${esc(st.goalForm.annualHold)}"></div>
         <div class="field"><label>&nbsp;</label><button class="btn btn-primary btn-block" id="go-add">添加</button></div>
       </div>
+      <div class="tiny muted">长期持有成本举例：车险+保养约 8000/年、电脑延保 500/年、相机镜头保养 300/年、软件订阅 1200/年。</div>
     </div>
   `;
   root.appendChild(addCard);
 
+  const nameEl = addCard.querySelector('#go-name');
+  const priceEl = addCard.querySelector('#go-price');
+  const yearsEl = addCard.querySelector('#go-years');
+  const holdEl = addCard.querySelector('#go-hold');
+  const syncForm = () => {
+    st.goalForm = { name: nameEl.value, price: priceEl.value, years: yearsEl.value, annualHold: holdEl.value };
+  };
+  [nameEl, priceEl, yearsEl, holdEl].forEach((el) => el.addEventListener('input', syncForm));
+
   addCard.querySelector('#go-add').addEventListener('click', () => {
-    const name = addCard.querySelector('#go-name').value.trim();
-    const target = num(addCard.querySelector('#go-target').value);
-    if (!name) return window.__toast('请填写目标名称', 'err');
-    if (target <= 0) return window.__toast('目标金额必须大于 0', 'err');
-    f.goals.push({ id: uid('gl'), name, target, records: [] });
-    st.goalForm = { name: '', target: '' };
+    const name = nameEl.value.trim();
+    const price = num(priceEl.value);
+    const years = num(yearsEl.value) || 1;
+    const annualHold = num(holdEl.value);
+    if (!name) return window.__toast('请填写名称', 'err');
+    if (price <= 0) return window.__toast('价格必须大于 0', 'err');
+    if (years <= 0) return window.__toast('使用年数必须大于 0', 'err');
+    if (years > 100) return window.__toast('使用年数请填 100 以内', 'err');
+    if (annualHold < 0) return window.__toast('持有成本不能为负', 'err');
+    f.goals.push({ id: uid('gl'), name, price, target: price, years, annualHold, records: [] });
+    st.goalForm = { name: '', price: '', years: '3', annualHold: '' };
     commit();
-    window.__toast('已添加目标', 'ok');
+    window.__toast('已添加', 'ok');
   });
 
   if (!f.goals.length) {
     const emptyCard = document.createElement('div');
     emptyCard.className = 'card';
-    emptyCard.innerHTML = '<div class="empty">还没有目标，在上面添加一个吧</div>';
+    emptyCard.innerHTML = '<div class="empty">清单还空着<br><span class="tiny">在上面加一件想买的东西，立刻能看到它值你多少小时</span></div>';
     root.appendChild(emptyCard);
     return;
   }
 
-  f.goals.forEach((g) => {
-    const cur = (g.records || []).reduce((a, r) => a + num(r.amount), 0);
-    const pct = num(g.target) > 0 ? Math.min((cur / num(g.target)) * 100, 100) : 0;
-    const done = pct >= 100;
+  // 排序：真实代价从高到低
+  const items = f.goals
+    .map((g) => {
+      const cur = (g.records || []).reduce((a, r) => a + num(r.amount), 0);
+      const price = num(g.price ?? g.target);
+      const pct = price > 0 ? Math.min((cur / price) * 100, 100) : 0;
+      const a = analyze(g, salary, oppRate);
+      return { g, cur, pct, price, done: pct >= 100, ...a };
+    })
+    .sort((a, b) => b.cost.real - a.cost.real);
 
+  items.forEach(({ g, cur, pct, price, done, cost, time, verdict: v }, idx) => {
     const card = document.createElement('div');
     card.className = 'card';
-    card.style.borderLeft = '3px solid ' + (done ? 'var(--down)' : 'var(--primary)');
+    card.style.borderLeft = '3px solid ' + (done ? 'var(--down)' : v.tone === 'up' ? 'var(--up)' : 'var(--primary)');
     card.innerHTML = `
       <div class="card-body">
         <div class="flex-between" style="align-items:flex-start;margin-bottom:10px">
           <div>
-            <div class="flex-between" style="gap:8px;justify-content:flex-start">
+            <div class="flex" style="gap:8px;align-items:center;flex-wrap:wrap">
               <span class="strong" style="font-size:16px">${esc(g.name)}</span>
+              <span class="tag tag-${v.tone === 'up' ? 'up' : v.tone === 'down' ? 'down' : 'flat'}">${v.text}</span>
               ${done ? '<span class="tag tag-down">已达成</span>' : ''}
+              ${idx === 0 && !done ? '<span class="tag tag-flat">最贵</span>' : ''}
             </div>
-            <div class="tiny muted" style="margin-top:3px">¥${money(cur, 0)} / ¥${money(num(g.target), 0)}</div>
+            <div class="tiny muted" style="margin-top:4px">
+              标价 ¥${money(price, 0)} · 用 ${num(g.years)} 年${num(g.annualHold) > 0 ? ` · 每年 ¥${money(g.annualHold, 0)}` : ''}
+            </div>
           </div>
           <div style="display:flex;gap:4px">
             <button class="btn btn-sm" data-edit>编辑</button>
             <button class="btn btn-sm btn-danger" data-del>删除</button>
           </div>
         </div>
-        <div class="bar" style="margin-bottom:10px"><div class="bar-fill ${done ? 'done' : ''}" style="width:${pct}%"></div></div>
+
+        <div class="grid g4" style="margin-bottom:10px">
+          <div class="stat" style="text-align:center">
+            <div class="stat-label">真实代价</div>
+            <div class="stat-value sm up">¥${money(cost.real, 0)}</div>
+          </div>
+          <div class="stat" style="text-align:center">
+            <div class="stat-label">要工作</div>
+            <div class="stat-value sm">${time ? money(time.hours, 1) + ' 小时' : '—'}</div>
+          </div>
+          <div class="stat" style="text-align:center">
+            <div class="stat-label">折合</div>
+            <div class="stat-value sm">${time ? money(time.days, 1) + ' 天' : '—'}</div>
+          </div>
+          <div class="stat" style="text-align:center">
+            <div class="stat-label">每天</div>
+            <div class="stat-value sm">¥${money(cost.perDay, 2)}</div>
+          </div>
+        </div>
+
+        <div class="hint" style="margin-bottom:10px">
+          现金支出 ¥${money(cost.total, 0)}（标价 + 持有 ¥${money(cost.holdTotal, 0)}）；
+          这笔钱若不花、按 ${oppRate}% 复利 ${num(g.years)} 年多出 ¥${money(cost.oppCost, 0)}，故真实代价 ¥${money(cost.real, 0)}${time ? `，折合 ${money(time.weeks, 1)} 周工资` : ''}。
+        </div>
+
+        <div class="bar" style="margin-bottom:6px"><div class="bar-fill ${done ? 'done' : ''}" style="width:${pct}%"></div></div>
+        <div class="flex-between tiny muted" style="margin-bottom:8px">
+          <span>已存 ¥${money(cur, 0)} / ¥${money(price, 0)}</span>
+          <span>${pct.toFixed(0)}%</span>
+        </div>
+
         <div class="flex-end" style="margin-bottom:8px">
           <button class="btn btn-primary btn-sm" data-deposit>+ 存入</button>
           <span class="tiny muted">${(g.records || []).length} 笔记录</span>
@@ -427,7 +562,8 @@ function renderGoal(root, ctx) {
     root.appendChild(card);
 
     card.querySelector('[data-deposit]').addEventListener('click', () => {
-      const v = prompt('存入金额:', '');
+      const left = Math.max(price - cur, 0);
+      const v = prompt(`存入金额（还差 ¥${money(left, 0)}）:`, left > 0 ? String(Math.round(left)) : '');
       if (v === null) return;
       const amount = Number(v);
       if (!Number.isFinite(amount) || amount <= 0) return window.__toast('金额必须大于 0', 'err');
@@ -438,19 +574,33 @@ function renderGoal(root, ctx) {
     });
 
     card.querySelector('[data-edit]').addEventListener('click', () => {
-      const name = prompt('修改目标名称:', g.name);
+      const name = prompt('名称:', g.name);
       if (name === null) return;
-      const target = prompt('修改目标金额:', g.target);
-      if (target === null) return;
-      const t = Number(target);
-      if (!Number.isFinite(t) || t <= 0) return window.__toast('目标金额无效', 'err');
+      const priceV = prompt('价格（元）:', g.price ?? g.target);
+      if (priceV === null) return;
+      const yearsV = prompt('打算用几年:', g.years);
+      if (yearsV === null) return;
+      const holdV = prompt('每年持有成本（元）:', g.annualHold || 0);
+      if (holdV === null) return;
+
+      const p = Number(priceV);
+      const y = Number(yearsV);
+      const h = Number(holdV);
+      if (!Number.isFinite(p) || p <= 0) return window.__toast('价格无效', 'err');
+      if (!Number.isFinite(y) || y <= 0) return window.__toast('年数无效', 'err');
+      if (y > 100) return window.__toast('使用年数请填 100 以内', 'err');
+      if (!Number.isFinite(h) || h < 0) return window.__toast('持有成本无效', 'err');
+
       g.name = name.trim() || g.name;
-      g.target = t;
+      g.price = p;
+      g.target = p;
+      g.years = y;
+      g.annualHold = h;
       commit();
     });
 
     card.querySelector('[data-del]').addEventListener('click', () => {
-      if (!confirm(`确定删除目标「${g.name}」吗？`)) return;
+      if (!confirm(`确定删除「${g.name}」吗？`)) return;
       f.goals = f.goals.filter((x) => x.id !== g.id);
       commit();
     });

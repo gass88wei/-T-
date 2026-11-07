@@ -50,7 +50,7 @@ function renderShell() {
       <div class="brand">
         <span class="brand-mark">◈</span>
         <span>做T全能终端</span>
-        <span class="brand-ver" id="ver">v1.0.0</span>
+        <span class="brand-ver" id="ver">v1.2.0</span>
       </div>
       <nav class="nav" id="nav">
         ${VIEWS.map(
@@ -96,7 +96,9 @@ let renderScheduled = false;
 function renderCurrentView() {
   if (renderScheduled) return;
   renderScheduled = true;
-  requestAnimationFrame(() => {
+  // 用定时器而不是 requestAnimationFrame：后者在窗口最小化/隐藏时会被暂停，
+  // 导致切页后内容区空白。定时器不受可见性影响。
+  setTimeout(() => {
     renderScheduled = false;
     const root = $('#view-root');
     if (!root) return;

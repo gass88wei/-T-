@@ -12,7 +12,11 @@ const DEFAULT_SETTINGS = {
 const DEFAULT_FINANCE = {
   transactions: [],
   goals: [],
-  settings: { yieldRate: 4, targetExpense: 5000 },
+  settings: {
+    yieldRate: 4,          // 年化收益率，同时用作机会成本率
+    targetExpense: 5000,   // 想维持的月支出
+    monthlySalary: 0,      // 月薪，用于折合工时
+  },
 };
 
 function emptyState() {
@@ -54,6 +58,20 @@ export function normalize(raw) {
   }
   if (!Array.isArray(out.finance.transactions)) out.finance.transactions = [];
   if (!Array.isArray(out.finance.goals)) out.finance.goals = [];
+
+  // 目标补齐：v2 之前只有 target，现在需要 price / years / annualHold
+  out.finance.goals = out.finance.goals.map((g) => {
+    const price = Number(g.price ?? g.target) || 0;
+    return {
+      id: g.id || uid('gl'),
+      name: g.name || '未命名',
+      price,
+      target: price, // 兼容旧字段，进度条仍按标价算
+      years: Number(g.years) > 0 ? Number(g.years) : 1,
+      annualHold: Number(g.annualHold) || 0,
+      records: Array.isArray(g.records) ? g.records : [],
+    };
+  });
 
   // 持仓字段补齐
   out.stocks = out.stocks.map((s) => ({

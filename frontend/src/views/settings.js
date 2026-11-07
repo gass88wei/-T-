@@ -136,6 +136,71 @@ export function render(root, ctx) {
     window.__toast('已恢复默认', 'ok');
   });
 
+  // ---- 财务自由参数 ----
+  const finCard = document.createElement('div');
+  finCard.className = 'card';
+  const fs = state.finance.settings;
+  finCard.innerHTML = `
+    <div class="card-head">
+      <div class="card-title">💡 财务自由参数<span class="sub">用于收入折合工时、财务自由进度</span></div>
+    </div>
+    <div class="card-body">
+      <div class="grid g3" style="margin-bottom:12px">
+        <div class="field">
+          <label>月薪（元）</label>
+          <input type="number" id="f-salary" step="100" value="${fs.monthlySalary || 0}" class="mono">
+        </div>
+        <div class="field">
+          <label>预估年化收益率（%）</label>
+          <input type="number" id="f-yield" step="0.1" value="${fs.yieldRate}" class="mono">
+        </div>
+        <div class="field">
+          <label>想维持的月支出（元）</label>
+          <input type="number" id="f-expense" step="100" value="${fs.targetExpense}" class="mono">
+        </div>
+      </div>
+      <div class="hint" id="f-hint"></div>
+      <div class="flex-end" style="margin-top:14px">
+        <button class="btn btn-primary" id="f-save">保存</button>
+      </div>
+    </div>
+  `;
+  root.appendChild(finCard);
+
+  const fSalary = finCard.querySelector('#f-salary');
+  const fYield = finCard.querySelector('#f-yield');
+  const fExpense = finCard.querySelector('#f-expense');
+  const fHint = finCard.querySelector('#f-hint');
+
+  const drawFinHint = () => {
+    const salary = num(fSalary.value);
+    const yr = num(fYield.value, 4);
+    const exp = num(fExpense.value, 5000);
+    const hw = salary > 0 ? salary / (21.75 * 8) : 0;
+    const goal = yr > 0 ? (exp * 12) / (yr / 100) : 0;
+    fHint.innerHTML = `
+      ${hw > 0 ? `时薪 <strong>¥${hw.toFixed(2)}</strong>；` : '填入月薪后可把开销折合成工时；'}
+      年化 ${yr}% 同时用作「想要清单」的机会成本率；
+      财务自由目标本金 <strong>¥${money(goal, 0)}</strong>。
+    `;
+  };
+  [fSalary, fYield, fExpense].forEach((el) => el.addEventListener('input', drawFinHint));
+  drawFinHint();
+
+  finCard.querySelector('#f-save').addEventListener('click', () => {
+    const salary = num(fSalary.value);
+    const yr = num(fYield.value, 4);
+    const exp = num(fExpense.value, 5000);
+    if (salary < 0) return window.__toast('月薪不能为负', 'err');
+    if (yr < 0 || yr > 100) return window.__toast('收益率超出合理范围', 'err');
+    if (exp < 0) return window.__toast('月支出不能为负', 'err');
+    state.finance.settings.monthlySalary = salary;
+    state.finance.settings.yieldRate = yr;
+    state.finance.settings.targetExpense = exp;
+    commit();
+    window.__toast('已保存', 'ok');
+  });
+
   // ---- 数据管理 ----
   const dataCard = document.createElement('div');
   dataCard.className = 'card';
@@ -157,7 +222,7 @@ export function render(root, ctx) {
         <div class="stat"><div class="stat-label">计算历史</div><div class="stat-value sm">${state.calcHistory.length}</div></div>
         <div class="stat"><div class="stat-label">常用代码</div><div class="stat-value sm">${state.savedCodes.length}</div></div>
         <div class="stat"><div class="stat-label">记账条目</div><div class="stat-value sm">${state.finance.transactions.length}</div></div>
-        <div class="stat"><div class="stat-label">目标数量</div><div class="stat-value sm">${state.finance.goals.length}</div></div>
+        <div class="stat"><div class="stat-label">想要清单</div><div class="stat-value sm">${state.finance.goals.length}</div></div>
       </div>
 
       <div class="flex-end">
@@ -207,7 +272,7 @@ export function render(root, ctx) {
     state.finance = {
       transactions: [],
       goals: [],
-      settings: { yieldRate: 4, targetExpense: 5000 },
+      settings: { yieldRate: 4, targetExpense: 5000, monthlySalary: 0 },
     };
     commit();
     window.__toast('已清空全部数据', 'ok');
@@ -220,7 +285,7 @@ export function render(root, ctx) {
     <div class="card-head"><div class="card-title">关于</div></div>
     <div class="card-body">
       <div class="hint">
-        <strong>做T全能终端 v1.1.1</strong><br>
+        <strong>做T全能终端 v1.2.0</strong><br>
         本地离线运行，所有数据保存在你自己的电脑上，不上传任何服务器。<br>
         做T成本核算：净值盈亏冲减持仓成本（摊薄）；加仓按加权平均重算；减仓成本不变。<br>
         手续费按 A 股规则计算：佣金双边（含最低值）、印花税仅卖出、过户费双边。<br><br>

@@ -181,6 +181,7 @@ select:focus { background-color: var(--bg); }
 .tag-info { background: rgba(76, 125, 255, .14); color: var(--primary); }
 .tag-warn { background: rgba(240, 169, 46, .14); color: var(--warn); }
 .tag-mute { background: #232b42; color: var(--text-2); }
+.tag-flat { background: #232b42; color: var(--text-2); }
 
 /* 统计小块 */
 .stat {
@@ -327,6 +328,7 @@ td.act, th.act { text-align: center; width: 68px; }
 .hr { height: 1px; background: var(--line-soft); margin: 14px 0; }
 .flex-between { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .flex-end { display: flex; align-items: flex-end; gap: 10px; }
+.flex { display: flex; align-items: center; }
 .nowrap { white-space: nowrap; }
 .strong { font-weight: 700; }
 .tiny { font-size: 11px; }
