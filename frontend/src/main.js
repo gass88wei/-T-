@@ -1,8 +1,16 @@
 import './style.css';
-import { initStore, subscribe, getState, getSettings, commit, flushSave, exportJSON, replaceState, getDataPath } from './lib/store.js';
-import { $, esc } from './lib/util.js';
+import {
+  initStore,
+  subscribe,
+  getState,
+  getSettings,
+  flushSave,
+  exportJSON,
+  replaceState,
+  getDataPath,
+} from './lib/store.js';
+import { $ } from './lib/util.js';
 import * as tTrading from './views/tTrading.js';
-import * as profitCalc from './views/profitCalc.js';
 import * as calc from './views/calc.js';
 import * as finance from './views/finance.js';
 import * as settingsView from './views/settings.js';
@@ -27,14 +35,13 @@ window.__toast = function (msg, kind = 'ok', ms = 2200) {
 // ===== 路由 =====
 const VIEWS = [
   { id: 'trading', icon: '📉', label: '做T管理', mod: tTrading },
-  { id: 'profit', icon: '💹', label: '收益计算器', mod: profitCalc },
   { id: 'calc', icon: '🧮', label: '计算器', mod: calc },
   { id: 'finance', icon: '💰', label: '财务自由', mod: finance },
   { id: 'settings', icon: '⚙️', label: '设置', mod: settingsView },
 ];
 
 let currentView = 'trading';
-const viewState = {}; // 每个视图的内部状态
+const viewState = {};
 
 function renderShell() {
   const app = $('#app');
@@ -82,6 +89,8 @@ function switchView(id) {
   updateNav();
   renderCurrentView();
 }
+// 供其它视图调用
+window.__switchView = switchView;
 
 let renderScheduled = false;
 function renderCurrentView() {
@@ -95,7 +104,24 @@ function renderCurrentView() {
     if (!view) return;
     root.innerHTML = '';
     const st = viewState[currentView] || (viewState[currentView] = {});
-    view.mod.render(root, { state: getState(), settings: getSettings(), viewState: st, rerender: renderCurrentView });
+
+    // 处理跨视图「带入持仓」请求
+    if (currentView === 'trading') {
+      const pf = getState().__prefillTrading;
+      if (pf) {
+        st.selectedId = pf.stockId;
+        st.subtab = 'position';
+        st.prefill = { buy: pf.buy, sell: pf.sell, qty: pf.qty };
+        delete getState().__prefillTrading;
+      }
+    }
+
+    view.mod.render(root, {
+      state: getState(),
+      settings: getSettings(),
+      viewState: st,
+      rerender: renderCurrentView,
+    });
   });
 }
 
@@ -105,8 +131,7 @@ async function doExport() {
     await flushSave();
     const api = window.go?.main?.App;
     if (!api?.ExportData) return window.__toast('导出功能不可用', 'err');
-    const text = exportJSON();
-    const path = await api.ExportData(text);
+    const path = await api.ExportData(exportJSON());
     if (path) window.__toast('已导出到 ' + path.split('/').pop(), 'ok', 3000);
   } catch (e) {
     window.__toast('导出失败：' + (e?.message || e), 'err', 3500);
@@ -118,7 +143,7 @@ async function doImport() {
     const api = window.go?.main?.App;
     if (!api?.ImportData) return window.__toast('导入功能不可用', 'err');
     const text = await api.ImportData();
-    if (!text) return; // 取消
+    if (!text) return;
     const raw = JSON.parse(text);
     if (!confirm('导入将覆盖当前全部数据，确定继续吗？\n（当前数据会先自动备份为 .bak）')) return;
     const ok = await replaceState(raw);
@@ -148,7 +173,6 @@ async function boot() {
   subscribe(() => renderCurrentView());
   switchView('trading');
 
-  // 关闭前保存
   window.addEventListener('beforeunload', () => {
     flushSave();
   });

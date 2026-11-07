@@ -153,9 +153,9 @@ export function render(root, ctx) {
 
       <div class="grid g3" style="margin-bottom:12px">
         <div class="stat"><div class="stat-label">持仓标的</div><div class="stat-value sm">${state.stocks.length}</div></div>
-        <div class="stat"><div class="stat-label">流水记录</div><div class="stat-value sm">${state.simpleLog.length}</div></div>
-        <div class="stat"><div class="stat-label">交易记录</div><div class="stat-value sm">${state.tradeRecords.length}</div></div>
+        <div class="stat"><div class="stat-label">操作记录</div><div class="stat-value sm">${state.stocks.reduce((a, s) => a + s.history.length, 0)}</div></div>
         <div class="stat"><div class="stat-label">计算历史</div><div class="stat-value sm">${state.calcHistory.length}</div></div>
+        <div class="stat"><div class="stat-label">常用代码</div><div class="stat-value sm">${state.savedCodes.length}</div></div>
         <div class="stat"><div class="stat-label">记账条目</div><div class="stat-value sm">${state.finance.transactions.length}</div></div>
         <div class="stat"><div class="stat-label">目标数量</div><div class="stat-value sm">${state.finance.goals.length}</div></div>
       </div>
@@ -194,8 +194,7 @@ export function render(root, ctx) {
   dataCard.querySelector('#s-wipe').addEventListener('click', () => {
     const total =
       state.stocks.length +
-      state.simpleLog.length +
-      state.tradeRecords.length +
+      state.stocks.reduce((a, s) => a + s.history.length, 0) +
       state.calcHistory.length +
       state.finance.transactions.length +
       state.finance.goals.length;
@@ -203,10 +202,7 @@ export function render(root, ctx) {
     if (!confirm(`确定清空全部数据吗？共 ${total} 条记录，此操作不可恢复。\n建议先导出备份。`)) return;
     if (!confirm('再次确认：真的要清空所有数据吗？')) return;
     state.stocks = [];
-    state.simpleLog = [];
-    state.tradeRecords = [];
     state.calcHistory = [];
-    state.compoundHistory = [];
     state.savedCodes = [];
     state.finance = {
       transactions: [],
@@ -224,7 +220,7 @@ export function render(root, ctx) {
     <div class="card-head"><div class="card-title">关于</div></div>
     <div class="card-body">
       <div class="hint">
-        <strong>做T全能终端 v1.0.0</strong><br>
+        <strong>做T全能终端 v1.1.0</strong><br>
         本地离线运行，所有数据保存在你自己的电脑上，不上传任何服务器。<br>
         做T成本核算：净值盈亏冲减持仓成本（摊薄）；加仓按加权平均重算；减仓成本不变。<br>
         手续费按 A 股规则计算：佣金双边（含最低值）、印花税仅卖出、过户费双边。<br><br>

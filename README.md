@@ -1,19 +1,93 @@
-# README
+# 做T全能终端
 
-## About
+本地离线的 A 股做T成本核算与交易记录工具。Go + Wails v2 + 原生 JS，无框架、无网络依赖，数据只存在你自己机器上。
 
-This is the official Wails Vanilla template.
+## 功能
 
-You can configure the project by editing `wails.json`. More information about the project settings can be found
-here: https://wails.io/docs/reference/project-config
+### 📉 做T管理
+- **持仓成本**：多标的持仓库，记录每次**做T / 加仓 / 减仓**，自动重算持仓成本
+  - 做T：净利（已扣双边手续费）直接冲减持仓总市值 → 成本摊薄
+  - 加仓：加权平均重算成本
+  - 减仓：股数减少，成本不变，收益计入已实现盈亏
+  - 删除任意一条历史记录，后续所有成本与股数**自动回滚重算**
+  - 显示摊薄幅度、保本卖出价（按实际持仓量算）、该标的做T战绩
+- **点位助手**：按递增涨幅生成阶梯卖出瞄点矩阵；高抛后按回调百分比算接回价。
+  在持仓成本里选中标的后，可一键带入它的成本价与持仓量
 
-## Live Development
+### 🧮 计算器
+- **普通计算器**：四则 + 括号 + 百分比 + 正负 + 退格，键盘直输，最近 100 条历史（可删、可点击复用）
+- **复利计算器**：
+  - 输入初始本金、每年追加、年化、年限、复利频率（年/半年/季/月/连续）
+  - 输出终值、累计投入、累计利息、收益倍数、实际年化 EAR
+  - 逐年明细表（期初 / 投入 / 利息 / 期末，可交叉校验）
+  - **反向求解**：想到达目标金额需要几年 / 需要多少年化 / 每年要投多少
+- **交易试算**：纯试算单笔买卖的毛收益、费用明细、净收益、保本卖出价。
+  不写记录、不参与统计；填好后可**一键带入持仓操作面板**
 
-To run in live development mode, run `wails dev` in the project directory. This will run a Vite development
-server that will provide very fast hot reload of your frontend changes. If you want to develop in a browser
-and have access to your Go methods, there is also a dev server that runs on http://localhost:34115. Connect
-to this in your browser, and you can call your Go code from devtools.
+### 💰 财务自由
+- 净资产概览、被动收入估算、财务自由进度条
+- 记账（收支分类）、储蓄目标（存入/撤销/编辑/删除）
+- 近 6 个月储蓄率柱状图、本月支出分类饼图
+- 生命价值：这件东西值我多少小时
 
-## Building
+### ⚙️ 设置
+- 手续费参数可配置（佣金率 / 最低佣金 / 印花税 / 过户费），一处改动全应用生效
+- 5 档券商费率预设，1 万元成交额实时试算对照
+- 数据文件的导入导出、清空、记录数统计
 
-To build a redistributable, production mode package, use `wails build`.
+## 数据存储
+
+所有数据存于单一 JSON 文件：
+
+```
+~/.local/share/zuot-terminal/data.json
+```
+
+- **原子写**：先写 `.tmp` 再 rename，避免写一半断电损坏
+- **自动备份**：每次保存前把上一版留为 `data.json.bak`
+- **自动恢复**：启动时若检测到主文件损坏，自动从 `.bak` 恢复
+
+数据可以直接用文本编辑器查看，也可以拷走换机器。
+
+## 构建
+
+### 云端（推荐）
+推 tag 即触发 GitHub Actions，产出 AppImage + deb + exe：
+
+```bash
+git tag v1.1.0
+git push origin v1.1.0
+```
+
+### 本地
+Linux 需要先装构建依赖：
+
+```bash
+sudo apt install libgtk-3-dev libwebkit2gtk-4.1-dev pkg-config
+```
+
+```bash
+go install github.com/wailsapp/wails/v2/cmd/wails@v2.17.1
+wails build -tags webkit2_41
+```
+
+产物在 `build/bin/`。
+
+## 技术栈
+
+| 层 | 选型 |
+|---|---|
+| 后端 | Go 1.23 + Wails v2.17.1 |
+| 前端 | 原生 JS（无框架）+ Vite 3 |
+| 样式 | 纯 CSS（设计令牌，无 Tailwind） |
+| 存储 | 单一 JSON 文件，Go 侧原子写 |
+| 构建 | GitHub Actions，ubuntu-22.04 |
+
+前端零运行时依赖：不引 React / Vue / Tailwind CDN，断网也能跑。
+
+## 已知限制
+
+- 只支持 A 股费率模型（港股、美股需另加费率规则）
+- 成本核算用简单平均法，不支持 FIFO / LIFO
+- 无行情对接，价格全手工输入
+- 无多账户隔离，所有数据在同一份 JSON 里

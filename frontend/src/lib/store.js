@@ -17,14 +17,11 @@ const DEFAULT_FINANCE = {
 
 function emptyState() {
   return {
-    version: 1,
+    version: 2,
     settings: { ...DEFAULT_SETTINGS },
     stocks: [],
-    simpleLog: [],
-    tradeRecords: [],
     savedCodes: [],
     calcHistory: [],
-    compoundHistory: [],
     finance: JSON.parse(JSON.stringify(DEFAULT_FINANCE)),
   };
 }
@@ -40,13 +37,19 @@ export function normalize(raw) {
   const base = emptyState();
   if (!raw || typeof raw !== 'object') return base;
   const out = { ...base, ...raw };
+  out.version = 2;
   out.settings = { ...DEFAULT_SETTINGS, ...(raw.settings || {}) };
   out.finance = {
     ...base.finance,
     ...(raw.finance || {}),
     settings: { ...base.finance.settings, ...((raw.finance || {}).settings || {}) },
   };
-  for (const k of ['stocks', 'simpleLog', 'tradeRecords', 'savedCodes', 'calcHistory', 'compoundHistory']) {
+  // 清掉已废弃的字段（v1 → v2 瘦身）
+  delete out.simpleLog;
+  delete out.tradeRecords;
+  delete out.compoundHistory;
+
+  for (const k of ['stocks', 'savedCodes', 'calcHistory']) {
     if (!Array.isArray(out[k])) out[k] = [];
   }
   if (!Array.isArray(out.finance.transactions)) out.finance.transactions = [];
