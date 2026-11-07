@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>股票收益记录助手</title>
+    <style>
+        :root {
+            --primary-color: #2979ff;
+            --success-color: #d32f2f; /* A股红 */
+            --danger-color: #388e3c;  /* A股绿 */
+            --bg-color: #f5f7fa;
+            --card-bg: #ffffff;
+            --text-main: #333;
+            --text-light: #666;
+            --border-color: #ddd;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background-color: var(--bg-color); color: var(--text-main); padding: 20px; }
+
+        /* Header */
+        header { text-align: center; margin-bottom: 30px; }
+        header h1 { font-size: 24px; margin-bottom: 5px; }
+        header p { color: var(--text-light); font-size: 14px; }
+
+        /* Main Layout */
+        .container { max-width: 1200px; margin: 0 auto; display: flex; gap: 20px; flex-wrap: wrap; }
+        
+        .card { background: var(--card-bg); border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); padding: 20px; }
+        
+        /* Left Side: Calculator */
+        .calc-section { flex: 1; min-width: 300px; }
+        .history-section { flex: 1.5; min-width: 300px; }
+
+        section h2 { font-size: 18px; border-left: 4px solid var(--primary-color); padding-left: 10px; margin-bottom: 20px; }
+
+        /* Form Elements */
+        .form-group { margin-bottom: 15px; }
+        .form-group label { display: block; font-size: 13px; color: var(--text-light); margin-bottom: 5px; }
+        .form-group input { width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 6px; font-size: 14px; }
+        .form-group input:focus { outline: none; border-color: var(--primary-color); }
+
+        .btn-group { display: flex; gap: 10px; margin-top: 20px; }
+        button { flex: 1; padding: 12px; border: none; border-radius: 6px; cursor: pointer; font-weight: 500; font-size: 15px; }
+        .btn-calc { background-color: #e3f2fd; color: var(--primary-color); }
+        .btn-calc:hover { background-color: #bbdefb; }
+        .btn-save { background-color: var(--primary-color); color: white; }
+        .btn-save:hover { background-color: #1565c0; }
+        .btn-clear { background-color: transparent; color: var(--text-light); border: 1px solid var(--border-color); width: auto; }
+        .btn-clear:hover { background-color: #eee; }
+
+        /* Code Tags / Chips */
+        .code-tags-container { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+        .code-tag {
+            background-color: #e8eaf6;
+            color: var(--primary-color);
+            padding: 4px 10px;
+            border-radius: 15px;
+            font-size: 12px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            border: 1px solid transparent;
+            transition: all 0.2s;
+            user-select: none;
+        }
+        .code-tag:hover { background-color: #c5cae9; border-color: var(--primary-color); }
+        .code-tag .close-tag {
+            margin-left: 6px;
+            font-weight: bold;
+            opacity: 0.6;
+        }
+        .code-tag .close-tag:hover { opacity: 1; color: var(--danger-color); }
+
+        /* Result Panel inside Calculator */
+        .result-panel { margin-top: 20px; background: #fafafa; padding: 15px; border-radius: 8px; }
+        .result-item { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 14px; }
+        .result-item span:last-child { font-weight: bold; }
+        .val-profit { color: var(--success-color); }
+        .val-loss { color: var(--danger-color); }
+
+        /* Stats Grid */
+        .stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 20px; }
+        .stat-box { background: #f8f9fa; padding: 10px; border-radius: 6px; text-align: center; }
+        .stat-label { font-size: 12px; color: var(--text-light); margin-bottom: 4px; }
+        .stat-value { font-size: 16px; font-weight: bold; color: var(--text-main); }
+
+        /* Table */
+        .table-container { max-height: 400px; overflow-y: auto; }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        th { text-align: left; padding: 10px; position: sticky; top: 0; background: #fff; color: var(--text-light); font-weight: normal; border-bottom: 1px solid var(--border-color); }
+        td { padding: 10px; border-bottom: 1px solid #eee; }
+        tr:last-child td { border-bottom: none; }
+        
+        .empty-state { text-align: center; padding: 30px; color: #999; font-size: 13px; }
+
+        /* Delete Button Style */
+        .btn-delete-row {
+            background: none; border: none; color: #ff5252; cursor: pointer; font-size: 12px; padding: 4px 8px; border-radius: 4px; transition: background 0.2s;
+        }
+        .btn-delete-row:hover { background-color: #ffebee; }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .container { flex-direction: column; }
+            .stats-grid { grid-template-columns: repeat(2, 1fr); }
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>股票收益记录助手</h1>
+        <p>专注记录和分析您的交易收益</p>
+    </header>
+
+    <div class="container">
+        <!-- 左侧：计算器 -->
+        <section class="card calc-section">
+            <h2>交易收益计算器</h2>
+            
+            <div class="form-group">
+                <label>股票代码</label>
+                <input type="text" id="stockCode" placeholder="如: 000001" maxlength="6">
+                <!-- 代码标签区域 -->
+                <div id="codeTags" class="code-tags-container"></div>
+            </div>
+            <div class="form-group">
+                <label>买入价格(元)</label>
+                <input type="number" id="buyPrice" step="0.01" value="0.00">
+            </div>
+            <div class="form-group">
+                <label>卖出价格(元)</label>
+                <input type="number" id="salePrice" step="0.01" value="0.00">
+            </div>
+            <div class="form-group">
+                <label>交易数量(股)</label>
+                <input type="number" id="quantity" value="1000">
+            </div>
+
+            <div class="btn-group">
+                <button class="btn-calc" onclick="calculateProfit()">计算收益</button>
+                <button class="btn-save" onclick="saveRecord()">保存记录</button>
+            </div>
+
+            <div class="result-panel" id="resultPanel" style="visibility: hidden;">
+                <div class="result-item"><span>毛收益:</span> <span id="resGross">- 元</span></div>
+                <div class="result-item"><span>交易成本:</span> <span id="resCost">- 元</span></div>
+                <div class="result-item"><span>净收益:</span> <span id="resNet">- 元</span></div>
+                <div class="result-item"><span>收益率:</span> <span id="resRoi">-%</span></div>
+            </div>
+        </section>
+
+        <!-- 右侧：历史与统计 -->
+        <section class="card history-section">
+            <h2>收益记录统计</h2>
+            
+            <!-- 统计数据 -->
+            <div class="stats-grid">
+                <div class="stat-box">
+                    <div class="stat-label">正收益次数</div>
+                    <div class="stat-value" id="statWinCount">0</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-label">负收益次数</div>
+                    <div class="stat-value" id="statLossCount">0</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-label">总盈利</div>
+                    <div class="stat-value val-profit" id="statTotalProfit">0元</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-label">总亏损</div>
+                    <div class="stat-value val-loss" id="statTotalLoss">0元</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-label">平均盈利</div>
+                    <div class="stat-value" id="statAvgProfit">0元</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-label">平均亏损</div>
+                    <div class="stat-value" id="statAvgLoss">0元</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-label">净收益</div>
+                    <div class="stat-value" id="statNetProfit">0元</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-label">胜率</div>
+                    <div class="stat-value" id="statWinRate">0%</div>
+                </div>
+            </div>
+
+            <!-- 操作栏 -->
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <span style="font-weight: bold; font-size: 14px;">交易记录</span>
+                <button class="btn-clear" onclick="clearAll()">清空全部</button>
+            </div>
+
+            <!-- 表格 -->
+            <div class="table-container">
+                <table id="historyTable">
+                    <thead>
+                        <tr>
+                            <th>时间</th>
+                            <th>代码</th>
+                            <th>价格(买/卖)</th>
+                            <th>数量</th>
+                            <th>净收益</th>
+                            <th>收益率</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tbody">
+                        <!-- 动态数据 -->
+                    </tbody>
+                </table>
+                <div id="emptyState" class="empty-state">暂无交易记录</div>
+            </div>
+        </section>
+    </div>
+
+    <script>
+        // --- 数据存储 ---
+        let records = JSON.parse(localStorage.getItem('stockRecords')) || [];
+        let savedCodes = JSON.parse(localStorage.getItem('savedCodes')) || []; // 新增：保存的常用代码
+        let currentCalculation = null;
+
+        // 初始化
+        renderCodeTags(); // 渲染代码标签
+        renderStats();
+        renderTable();
+
+        // --- 1. 代码标签管理功能 ---
+        
+        // 渲染常用代码标签
+        function renderCodeTags() {
+            const container = document.getElementById('codeTags');
+            container.innerHTML = '';
+            
+            savedCodes.forEach(code => {
+                const tag = document.createElement('div');
+                tag.className = 'code-tag';
+                tag.innerHTML = `${code} <span class="close-tag" onclick="event.stopPropagation(); removeCode('${code}')">×</span>`;
+                tag.onclick = () => {
+                    document.getElementById('stockCode').value = code;
+                };
+                container.appendChild(tag);
+            });
+        }
+
+        // 移除单个代码
+        function removeCode(codeToRemove) {
+            savedCodes = savedCodes.filter(c => c !== codeToRemove);
+            localStorage.setItem('savedCodes', JSON.stringify(savedCodes));
+            renderCodeTags();
+        }
+
+        // 添加代码到记录（在保存记录时调用）
+        function addCodeToSaved(code) {
+            if (!code) return;
+            // 如果已存在，先移除（为了让新用过的排到最前面）
+            savedCodes = savedCodes.filter(c => c !== code);
+            savedCodes.unshift(code); // 加到最前
+            // 限制保存数量，比如最多存10个
+            if(savedCodes.length > 10) savedCodes.pop();
+            
+            localStorage.setItem('savedCodes', JSON.stringify(savedCodes));
+            renderCodeTags();
+        }
+
+        // --- 2. 计算功能 ---
+        function calculateProfit() {
+            const code = document.getElementById('stockCode').value.trim();
+            const buyPrice = parseFloat(document.getElementById('buyPrice').value);
+            const salePrice = parseFloat(document.getElementById('salePrice').value);
+            const quantity = parseInt(document.getElementById('quantity').value);
+
+            if (isNaN(buyPrice) || isNaN(salePrice) || isNaN(quantity)) {
+                alert("请输入有效的数字");
+                return;
+            }
+
+            const grossProfit = (salePrice - buyPrice) * quantity;
+            const buyAmount = buyPrice * quantity;
+            const saleAmount = salePrice * quantity;
+            
+            let commission = (buyAmount + saleAmount) * 0.00025;
+            if (commission < 5) commission = 5;
+            const stampDuty = saleAmount * 0.001;
+            const totalCost = commission + stampDuty;
+
+            const netProfit = grossProfit - totalCost;
+            const roi = (netProfit / buyAmount) * 100;
+
+            currentCalculation = {
+                code: code || '-',
+                buyPrice,
+                salePrice,
+                quantity,
+                netProfit: parseFloat(netProfit.toFixed(2)),
+                roi: parseFloat(roi.toFixed(2)),
+                cost: parseFloat(totalCost.toFixed(2))
+            };
+
+            const panel = document.getElementById('resultPanel');
+            panel.style.visibility = 'visible';
+            
+            setResultText('resGross', grossProfit.toFixed(2));
+            setResultText('resCost', totalCost.toFixed(2));
+            setResultText('resNet', netProfit.toFixed(2), true);
+            setResultText('resRoi', roi.toFixed(2) + '%');
+        }
+
+        function setResultText(id, value, isBold = false) {
+            const el = document.getElementById(id);
+            const numVal = parseFloat(value);
+            if (numVal > 0) {
+                el.innerHTML = `<span class="val-profit">${value}</span>`;
+                if(isBold) el.innerHTML = `<span class="val-profit" style="font-size:1.2em">+${value}</span>`;
+            } else if (numVal < 0) {
+                el.innerHTML = `<span class="val-loss">${value}</span>`;
+            } else {
+                el.innerText = value;
+            }
+        }
+
+        // --- 3. 保存功能 ---
+        function saveRecord() {
+            if (!currentCalculation) {
+                alert("请先点击“计算收益”");
+                return;
+            }
+            
+            // 获取当前输入框的代码（不是计算时的临时变量，以防计算后改了代码没重新算）
+            const codeInput = document.getElementById('stockCode').value.trim();
+            if(codeInput) {
+                // 自动加入常用代码列表
+                addCodeToSaved(codeInput);
+            }
+
+            const record = {
+                ...currentCalculation,
+                timestamp: new Date().toLocaleString()
+            };
+
+            records.unshift(record);
+            localStorage.setItem('stockRecords', JSON.stringify(records));
+            
+            renderStats();
+            renderTable();
+            
+            // 重置
+            document.getElementById('stockCode').value = '';
+            document.getElementById('buyPrice').value = '0.00';
+            document.getElementById('salePrice').value = '0.00';
+            document.getElementById('resultPanel').style.visibility = 'hidden';
+            currentCalculation = null;
+        }
+
+        // --- 4. 删除单条记录 ---
+        function deleteRecord(index) {
+            if(confirm('确定要删除这条记录吗？')) {
+                records.splice(index, 1);
+                localStorage.setItem('stockRecords', JSON.stringify(records));
+                renderTable();
+                renderStats();
+            }
+        }
+
+        // --- 5. 渲染表格 ---
+        function renderTable() {
+            const tbody = document.getElementById('tbody');
+            const emptyState = document.getElementById('emptyState');
+            tbody.innerHTML = '';
+
+            if (records.length === 0) {
+                emptyState.style.display = 'block';
+                return;
+            } else {
+                emptyState.style.display = 'none';
+            }
+
+            records.forEach((r, index) => {
+                const tr = document.createElement('tr');
+                const profitClass = r.netProfit >= 0 ? 'val-profit' : 'val-loss';
+                const profitSign = r.netProfit > 0 ? '+' : '';
+                const roiClass = r.roi >= 0 ? 'val-profit' : 'val-loss';
+
+                tr.innerHTML = `
+                    <td style="color:#888; font-size:12px;">${r.timestamp.split(' ')[0]}<br>${r.timestamp.split(' ')[1]}</td>
+                    <td><span style="background:#eee; padding:2px 4px; border-radius:3px;">${r.code}</span></td>
+                    <td>${r.buyPrice} / ${r.salePrice}</td>
+                    <td>${r.quantity}</td>
+                    <td class="${profitClass}">${profitSign}${r.netProfit}</td>
+                    <td class="${roiClass}">${r.roi}%</td>
+                    <td><button class="btn-delete-row" onclick="deleteRecord(${index})">删除</button></td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        // --- 6. 渲染统计 ---
+        function renderStats() {
+            let winCount = 0, lossCount = 0, totalProfit = 0, totalLoss = 0, netProfit = 0;
+            const profits = [], losses = [];
+
+            records.forEach(r => {
+                netProfit += r.netProfit;
+                if (r.netProfit > 0) {
+                    winCount++; totalProfit += r.netProfit; profits.push(r.netProfit);
+                } else if (r.netProfit < 0) {
+                    lossCount++; totalLoss += r.netProfit; losses.push(r.netProfit);
+                }
+            });
+
+            const avgProfit = profits.length ? (totalProfit / profits.length).toFixed(2) : 0;
+            const avgLoss = losses.length ? (totalLoss / losses.length).toFixed(2) : 0;
+            const winRate = records.length ? ((winCount / records.length) * 100).toFixed(1) : 0;
+            const netStr = netProfit > 0 ? `+${netProfit.toFixed(2)}` : netProfit.toFixed(2);
+
+            document.getElementById('statWinCount').innerText = winCount;
+            document.getElementById('statLossCount').innerText = lossCount;
+            document.getElementById('statTotalProfit').innerText = totalProfit.toFixed(2);
+            document.getElementById('statTotalLoss').innerText = totalLoss.toFixed(2);
+            document.getElementById('statAvgProfit').innerText = avgProfit;
+            document.getElementById('statAvgLoss').innerText = avgLoss;
+            
+            const netEl = document.getElementById('statNetProfit');
+            netEl.innerText = netStr + '元';
+            netEl.className = 'stat-value ' + (netProfit >= 0 ? 'val-profit' : 'val-loss');
+
+            document.getElementById('statWinRate').innerText = winRate + '%';
+        }
+
+        // --- 7. 清空功能 ---
+        function clearAll() {
+            if(confirm('确定要清空所有历史记录吗？此操作不可恢复。')) {
+                records = [];
+                localStorage.removeItem('stockRecords');
+                renderStats();
+                renderTable();
+            }
+        }
+    </script>
+</body>
+</html>

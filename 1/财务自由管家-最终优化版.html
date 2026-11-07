@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>财务自由管家 - 最终优化版</title>
+  
+  <!-- CDN -->
+  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.development.js"></script>
+  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.development.js"></script>
+  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+  
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+  
+  <style>
+    * { font-family: 'Noto Sans SC', sans-serif; }
+    body { background: linear-gradient(135deg, #1e1b4b 0%, #312e81 100%); min-height: 100vh; margin: 0; color: #fff; overflow: hidden; }
+    
+    .glass { background: rgba(255, 255, 255, 0.05); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.08); }
+    .glass-card { background: rgba(17, 25, 40, 0.75); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 1rem; box-shadow: 0 4px 30px rgba(0, 0, 0, 0.3); }
+    
+    /* 进度条样式优化 */
+    .progress-lg { height: 10px; border-radius: 9999px; background-color: rgba(255,255,255,0.1); overflow: hidden }
+    .progress-fill { height: 100%; background: linear-gradient(90deg, #3b82f6 0%, #06b6d4 100%); transition: width 0.5s ease-out; }
+    
+    .progress-striped {
+      background-image: linear-gradient(45deg,rgba(255,255,255,.15) 25%,transparent 25%,transparent 50%,rgba(255,255,255,.15) 50%,rgba(255,255,255,.15) 75%,transparent 75%,transparent);
+      background-size: 1rem 1rem;
+      animation: progress-bar-stripes 1s linear infinite;
+    }
+    @keyframes progress-bar-stripes { from { background-position: 1rem 0; } to { background-position: 0 0; } }
+
+    #root { transition: opacity 0.5s ease-in; }
+    
+    .pulse-soft { animation: pulse-soft 2s infinite; }
+    @keyframes pulse-soft { 0% { box-shadow: 0 0 0 0 rgba(139, 92, 246, 0.4); } 70% { box-shadow: 0 0 0 10px rgba(139, 92, 246, 0); } 100% { box-shadow: 0 0 0 0 rgba(139, 92, 246, 0); } }
+    
+    .interactive-text { cursor: pointer; border-bottom: 1px dashed rgba(255,255,255,0.3); transition: all 0.2s; }
+    .interactive-text:hover { color: #c4b5fd; border-bottom-color: #a78bfa; background: rgba(255,255,255,0.05); }
+
+    /* 模态框动画 */
+    .modal-enter { animation: modalIn 0.2s ease-out; }
+    @keyframes modalIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    const safeNum = (val, fallback = 0) => {
+      const num = Number(val);
+      return isNaN(num) ? fallback : num;
+    };
+
+    const Storage = {
+      get(key) { try { const item = localStorage.getItem(key); return item ? JSON.parse(item) : []; } catch { return []; } },
+      set(key, data) { try { localStorage.setItem(key, JSON.stringify(data)); } catch { alert('存储空间已满'); } }
+    };
+
+    function App() {
+      useEffect(() => { document.body.style.overflow = 'auto'; document.getElementById('root').style.opacity = '1'; }, []);
+      const [page, setPage] = useState('home');
+
+      const pages = [
+        { id: 'home', label: '首页', icon: '🏠' },
+        { id: 'calc', label: '工具', icon: '🧮' },
+        { id: 'bill', label: '记账', icon: '💰' },
+        { id: 'target', label: '目标', icon: '🎯' },
+        { id: 'data', label: '统计', icon: '📊' },
+      ];
+
+      return (
+        <div className="flex min-h-screen text-gray-100">
+          <div className="w-64 glass flex flex-col flex-shrink-0 h-screen sticky top-0 z-10">
+            <div className="p-6"><h1 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-purple-400 to-pink-400">💰 自由管家</h1></div>
+            <nav className="flex-1 px-3 space-y-1">
+              {pages.map(item => (
+                <button key={item.id} onClick={() => setPage(item.id)}
+                  className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-all ${page === item.id ? 'bg-white text-purple-900 font-bold shadow-lg' : 'text-gray-400 hover:bg-white/5 hover:text-white'}`}>
+                  <span>{item.icon}</span><span>{item.label}</span>
+                </button>
+              ))}
+            </nav>
+            <div className="p-4 text-xs text-center text-gray-500">本地存储 · 数据安全</div>
+          </div>
+          <div className="flex-1 overflow-auto p-4 md:p-8 max-w-6xl mx-auto">
+            {page === 'home' && <HomePage setPage={setPage} />}
+            {page === 'calc' && <CalculatorPage />}
+            {page === 'bill' && <BillPage />}
+            {page === 'target' && <TargetPage />}
+            {page === 'data' && <StatsPage />}
+          </div>
+        </div>
+      );
+    }
+
+    function HomePage({ setPage }) {
+      const [settings, setSettings] = useState({ yieldRate: 4, targetExpense: 5000 });
+      const [activeGoals, setActiveGoals] = useState([]);
+      const [assets, setAssets] = useState(0);
+
+      // 快速记账模态框状态
+      const [showQuickAdd, setShowQuickAdd] = useState(false);
+      const [quickForm, setQuickForm] = useState({ type: 'expense', category: '', amount: '' });
+
+      useEffect(() => {
+        const stored = localStorage.getItem('user_settings');
+        if (stored) try { setSettings(JSON.parse(stored)); } catch(e){}
+      }, []);
+
+      const calculateAssets = () => {
+        const t = Storage.get('transactions') || [];
+        const inc = t.filter(x => x.type === 'income').reduce((a, b) => a + safeNum(b.amount), 0);
+        const exp = t.filter(x => x.type === 'expense').reduce((a, b) => a + safeNum(b.amount), 0);
+        setAssets(inc - exp);
+      };
+
+      const loadGoals = () => {
+        const rawData = Storage.get('goals') || [];
+        const fixedData = rawData.map(g => {
+           if (typeof g.target !== 'number') g.target = 0;
+           if (!g.records) g.records = [];
+           return g;
+        });
+        setActiveGoals(fixedData);
+        calculateAssets();
+      };
+
+      useEffect(() => { loadGoals(); }, []);
+
+      // 快速记账逻辑
+      const handleQuickAddSubmit = () => {
+        if(!quickForm.category || !quickForm.amount) return alert('请填写完整');
+        const amt = Number(quickForm.amount);
+        if(amt <= 0) return alert('金额必须大于0');
+
+        const t = Storage.get('transactions');
+        t.unshift({ // 加到最前面
+          type: quickForm.type,
+          category: quickForm.category,
+          amount: amt,
+          date: new Date().toISOString().split('T')[0],
+          id: Date.now()
+        });
+        Storage.set('transactions', t);
+        
+        // 更新页面数据
+        loadGoals();
+        setShowQuickAdd(false);
+        setQuickForm({ type: 'expense', category: '', amount: '' }); // 重置表单
+      };
+
+      const editYieldRate = () => {
+        const val = prompt("请输入预估年化收益率 (%):", settings.yieldRate);
+        if (val === null) return;
+        const num = Number(val);
+        if (!isNaN(num) && num >= 0) {
+          const newSettings = { ...settings, yieldRate: num };
+          setSettings(newSettings);
+          localStorage.setItem('user_settings', JSON.stringify(newSettings));
+        } else alert('请输入有效的数字');
+      };
+
+      const editExpense = () => {
+        const val = prompt("请输入你想维持的每月自由支出 (元):", settings.targetExpense);
+        if (val === null) return;
+        const num = Number(val);
+        if (!isNaN(num) && num >= 0) {
+          const newSettings = { ...settings, targetExpense: num };
+          setSettings(newSettings);
+          localStorage.setItem('user_settings', JSON.stringify(newSettings));
+        } else alert('请输入有效的数字');
+      };
+
+      const passiveMonthly = safeNum(assets) * (safeNum(settings.yieldRate) / 100) / 12;
+      const fireGoal = safeNum(settings.targetExpense) * 12 / (safeNum(settings.yieldRate) / 100);
+      const fireProgress = (safeNum(assets) / fireGoal) * 100;
+
+      const renderGoalItem = (g) => {
+        const current = (g.records || []).reduce((sum, r) => sum + safeNum(r.amount), 0);
+        const pct = Math.min((current / safeNum(g.target, 1)) * 100, 100);
+        const remaining = Math.max(safeNum(g.target) - current, 0);
+        
+        return (
+          <div key={g.id} className="bg-white/5 rounded-lg p-4 border border-white/5 hover:bg-white/10 transition-colors">
+            <div className="flex justify-between items-center mb-2">
+              <div className="flex items-center gap-2">
+                <span className="text-lg">🎯</span>
+                <span className="font-bold text-white truncate max-w-[140px]">{g.name}</span>
+              </div>
+              <span className="font-bold text-cyan-400 text-sm">{pct.toFixed(0)}%</span>
+            </div>
+            
+            <div className="progress-lg mb-2">
+              <div className="progress-fill" style={{width: `${pct}%`}}></div>
+            </div>
+            
+            <div className="flex justify-between text-xs text-gray-400 px-1">
+              <span>已存 ¥{current.toLocaleString()}</span>
+              <span>还需 ¥{remaining.toLocaleString()}</span>
+            </div>
+          </div>
+        );
+      };
+
+      return (
+        <div className="space-y-6 relative">
+          <div className="flex items-center gap-2 mb-2">
+            <div className="w-2 h-8 bg-purple-500 rounded-full"></div>
+            <h1 className="text-2xl font-bold text-white">欢迎回来，开始今天的致富之旅！</h1>
+          </div>
+
+          {/* 1. 总资产卡片 */}
+          <div className="glass-card p-6 border-t-4 border-t-purple-500 relative overflow-hidden group">
+            <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity pointer-events-none"><span className="text-8xl">💎</span></div>
+            <div className="flex justify-between items-end">
+              <div>
+                <div className="text-gray-400 mb-1 text-sm uppercase tracking-wider">当前总资产</div>
+                <div className="text-5xl font-bold text-white tracking-tight">¥{Number(assets).toLocaleString()}</div>
+              </div>
+              {/* 修复点：直接打开模态框，而不是跳转 */}
+              <button onClick={() => setShowQuickAdd(true)} className="flex items-center gap-2 text-sm bg-purple-600 hover:bg-purple-500 px-4 py-2 rounded-lg transition-transform active:scale-95 shadow-lg">
+                <span className="text-lg">✍️</span> <span>快速记一笔</span>
+              </button>
+            </div>
+          </div>
+
+          {/* 核心逻辑区 */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* 被动收入 */}
+            <div className="glass-card p-6 bg-gradient-to-br from-indigo-900/20 to-black/40">
+               <div className="flex justify-between items-start mb-4">
+                 <div>
+                   <div className="text-indigo-300 text-sm font-medium">你的钱正在为你工作</div>
+                   <div className="text-gray-500 text-xs mt-1 cursor-pointer hover:text-gray-300" onClick={editYieldRate}>
+                       基于 <span className="interactive-text">年化 {settings.yieldRate}%</span> 计算 (点击修改)
+                   </div>
+                 </div>
+               </div>
+               <div className="text-3xl font-bold text-white mb-1">¥{passiveMonthly.toFixed(2)} <span className="text-sm text-gray-400 font-normal">/ 月</span></div>
+               <div className="text-sm text-indigo-400">年化 ≈ ¥{(passiveMonthly * 12).toFixed(0)}</div>
+            </div>
+
+            {/* 自由金目标 */}
+            <div className="glass-card p-6 bg-gradient-to-br from-purple-900/20 to-black/40">
+               <div className="flex justify-between items-start mb-4">
+                 <div>
+                   <div className="text-purple-300 text-sm font-medium">财务自由进度</div>
+                   <div className="text-gray-500 text-xs mt-1 cursor-pointer hover:text-gray-300" onClick={editExpense}>
+                       维持 <span className="interactive-text">¥{Number(settings.targetExpense).toLocaleString()}</span>/ 月 (点击修改)
+                   </div>
+                 </div>
+               </div>
+               <div className="flex items-end justify-between mb-2">
+                 <div className="text-3xl font-bold text-white">{Math.min(fireProgress, 100).toFixed(1)}%</div>
+                 <div className="text-xs text-gray-400 text-right">目标金<br/>¥{Number(fireGoal).toLocaleString()}</div>
+               </div>
+               <div className="w-full bg-black/40 rounded-full h-3 overflow-hidden">
+                 <div className="h-full bg-gradient-to-r from-purple-600 to-pink-500 progress-striped transition-all duration-1000" style={{width: `${Math.min(fireProgress, 100)}%`}}></div>
+               </div>
+            </div>
+          </div>
+
+          {/* 具体里程碑 (修复点：进度条更清晰，一目了然) */}
+          <div className="glass-card p-6">
+            <div className="flex justify-between items-center mb-6">
+               <h3 className="text-lg font-bold text-gray-200">⚡ 进行中的具体目标</h3>
+               <button onClick={() => setPage('target')} className="text-xs text-purple-300 hover:text-white border border-purple-300/30 px-3 py-1 rounded-full transition-colors">
+                 管理目标 +
+               </button>
+            </div>
+            
+            {activeGoals.length === 0 ? (
+              <div className="text-center py-12 text-gray-500 border-2 border-dashed border-white/10 rounded-lg bg-white/5">
+                暂无进行中的小目标
+                <br/><span className="text-xs mt-2 block opacity-70">点击右上角添加目标 (如：买车、旅游基金)</span>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {activeGoals
+                  .map((g, i) => {
+                     const current = (g.records || []).reduce((sum, r) => sum + safeNum(r.amount), 0);
+                     const pct = Math.min((current / safeNum(g.target, 1)) * 100, 100);
+                     return pct < 100 ? renderGoalItem(g) : null;
+                  })
+                  .filter(x => x !== null)
+                }
+              </div>
+            )}
+          </div>
+
+          {/* 快速记账模态框 (新增功能) */}
+          {showQuickAdd && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+              <div className="glass-card w-full max-w-md p-6 modal-enter relative border border-purple-500/30">
+                <div className="flex justify-between items-center mb-6">
+                  <h2 className="text-xl font-bold text-white">快速记账</h2>
+                  <button onClick={() => setShowQuickAdd(false)} className="text-gray-400 hover:text-white text-2xl">&times;</button>
+                </div>
+                
+                <div className="space-y-4">
+                  <div className="flex gap-2 mb-4">
+                    <button 
+                      onClick={() => setQuickForm({...quickForm, type: 'expense'})}
+                      className={`flex-1 py-2 rounded border ${quickForm.type === 'expense' ? 'bg-red-500/20 border-red-500 text-red-300' : 'bg-white/5 border-white/10 text-gray-400'}`}
+                    >
+                      📉 支出
+                    </button>
+                    <button 
+                      onClick={() => setQuickForm({...quickForm, type: 'income'})}
+                      className={`flex-1 py-2 rounded border ${quickForm.type === 'income' ? 'bg-green-500/20 border-green-500 text-green-300' : 'bg-white/5 border-white/10 text-gray-400'}`}
+                    >
+                      📈 收入
+                    </button>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1">分类</label>
+                    <input 
+                      value={quickForm.category} 
+                      onChange={e => setQuickForm({...quickForm, category: e.target.value})} 
+                      placeholder="例如：吃饭、工资、买菜" 
+                      className="w-full bg-black/30 border border-white/10 rounded p-2 text-white focus:border-purple-500 outline-none" 
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1">金额 (元)</label>
+                    <input 
+                      value={quickForm.amount} 
+                      onChange={e => setQuickForm({...quickForm, amount: e.target.value})} 
+                      placeholder="0.00" 
+                      type="number" 
+                      className="w-full bg-black/30 border border-white/10 rounded p-2 text-white focus:border-purple-500 outline-none text-xl font-mono" 
+                    />
+                  </div>
+
+                  <button 
+                    onClick={handleQuickAddSubmit}
+                    className="w-full bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold py-3 rounded-lg shadow-lg mt-2 active:scale-[0.99] transition-all"
+                  >
+                    💾 立即保存并更新
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    function TargetPage() {
+      const [goals, setGoals] = useState([]);
+      const [form, setForm] = useState({ name: '', target: '' });
+      
+      const loadGoals = () => {
+        let rawData = Storage.get('goals') || [];
+        const fixedData = rawData.map(g => {
+          if (typeof g.target !== 'number') g.target = 0;
+          if (!g.records) g.records = [];
+          if (g.records.length === 0 && g.current > 0) {
+            g.records = [{ id: Date.now(), date: new Date().toISOString().split('T')[0], amount: g.current, note: '自动迁移' }];
+          }
+          return g;
+        });
+        setGoals(fixedData);
+      };
+      useEffect(() => { loadGoals(); }, []);
+
+      const getCurrent = (goal) => (goal.records || []).reduce((sum, r) => sum + safeNum(r.amount), 0);
+
+      const addGoal = () => {
+        if(!form.name || !form.target) return;
+        const newGoal = { id: Date.now(), name: form.name, target: Number(form.target), records: [] };
+        const data = Storage.get('goals'); data.push(newGoal);
+        Storage.set('goals', data); loadGoals(); setForm({ name: '', target: '' });
+      };
+
+      const editGoal = (goal) => {
+        const newName = prompt('修改目标名称:', goal.name);
+        if(newName === null) return;
+        const newTarget = prompt('修改目标金额:', goal.target);
+        if(newTarget === null) return;
+        if(!newTarget || isNaN(newTarget)) return alert('无效金额');
+        const data = Storage.get('goals').map(g => g.id === goal.id ? { ...g, name: newName, target: Number(newTarget) } : g);
+        Storage.set('goals', data); loadGoals();
+      };
+
+      const deposit = (id) => {
+        const amt = prompt('存入金额:', '');
+        if(!amt || isNaN(amt)) return;
+        const amount = Number(amt);
+        if(amount <= 0) return alert('金额>0');
+        const data = Storage.get('goals').map(g => {
+          if (g.id === id) return { ...g, records: [...(g.records || []), { id: Date.now(), date: new Date().toISOString().split('T')[0], amount, note: '存入' }] };
+          return g;
+        });
+        Storage.set('goals', data); loadGoals();
+      };
+
+      const deleteRecord = (goalId, recordId) => {
+        if(!confirm('撤销此笔存入?')) return;
+        const data = Storage.get('goals').map(g => {
+          if (g.id === goalId) return { ...g, records: g.records.filter(r => r.id !== recordId) };
+          return g;
+        });
+        Storage.set('goals', data); loadGoals();
+      };
+      
+      const deleteGoal = (id) => {
+        if(!confirm('删除整个目标?')) return;
+        const data = Storage.get('goals').filter(g => g.id !== id);
+        Storage.set('goals', data); loadGoals();
+      };
+
+      return (
+        <div className="space-y-6">
+          <div className="glass-card p-4 flex gap-2 items-end border border-purple-500/20">
+            <div className="text-2xl">🎯</div>
+            <input value={form.name} onChange={e => setForm({...form, name: e.target.value})} placeholder="目标名称 (如: 新电脑)" className="flex-1 bg-black/20 border border-white/10 rounded p-2 text-white focus:border-purple-500 outline-none" />
+            <input value={form.target} onChange={e => setForm({...form, target: e.target.value})} placeholder="目标金额" type="number" className="w-32 bg-black/20 border border-white/10 rounded p-2 text-white focus:border-purple-500 outline-none" />
+            <button onClick={addGoal} className="bg-purple-600 hover:bg-purple-500 px-6 rounded font-bold h-[42px]">添加</button>
+          </div>
+          <div className="space-y-4">
+            {goals.map(g => {
+              const current = getCurrent(g); const pct = Math.min((current / safeNum(g.target, 1)) * 100, 100);
+              return (
+                <div key={g.id} className={`glass-card p-5 border-l-4 ${pct >= 100 ? 'border-l-green-500' : 'border-l-purple-500'}`}>
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <div className="text-xl font-bold flex items-center gap-2">{g.name} {pct >= 100 && <span className="text-xs bg-green-500 text-white px-2 py-0.5 rounded">已达成</span>}</div>
+                      <div className="text-gray-400 mt-1">¥{current.toLocaleString()} / ¥{safeNum(g.target, 0).toLocaleString()}</div>
+                    </div>
+                    <div className="flex gap-2"><button onClick={() => editGoal(g)}>📝</button><button onClick={() => deleteGoal(g.id)}>🗑️</button></div>
+                  </div>
+                  
+                  {/* 目标页面也同步更新进度条样式 */}
+                  <div className="w-full bg-black/30 rounded-full h-4 mb-4 overflow-hidden mt-3">
+                    <div className={`h-4 ${pct >= 100 ? 'bg-green-500' : 'bg-gradient-to-r from-purple-500 to-pink-500'}`} style={{width: `${pct}%`}}></div>
+                  </div>
+                  
+                  <div className="flex gap-4 mt-2 pt-3 border-t border-white/5 items-center">
+                    <button onClick={() => deposit(g.id)} className="bg-purple-600 hover:bg-purple-500 text-white px-4 py-2 rounded text-sm transition-transform active:scale-95">+ 存入资金</button>
+                    <div className="flex-1 flex flex-col">
+                       <span className="text-xs text-gray-500 mb-1">记录明细 (点击撤销)</span>
+                       <div className="bg-black/20 rounded p-2 h-14 overflow-y-auto text-xs space-y-1 custom-scrollbar">
+                         {(g.records || []).reverse().map(r => (
+                           <div key={r.id} className="flex justify-between text-gray-300 group hover:bg-white/5 p-1 rounded cursor-pointer" onClick={()=>deleteRecord(g.id, r.id)}>
+                             <span>{r.date ? r.date.substring(5) : '未知日期'}</span>
+                             <span className="text-green-300">+¥{safeNum(r.amount, 0).toLocaleString()}</span>
+                             <span className="text-gray-500 text-[10px] self-center hover:text-red-400">(撤销)</span>
+                           </div>
+                         ))}
+                         {(g.records || []).length === 0 && <span className="text-gray-600 text-center py-1">暂无记录</span>}
+                       </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      );
+    }
+
+    function BillPage() {
+      const [list, setList] = useState([]);
+      const [form, setForm] = useState({ type: 'expense', category: '', amount: '', date: new Date().toISOString().split('T')[0] });
+      const load = () => {
+        const l = Storage.get('transactions') || [];
+        setList(l.sort((a, b) => (b.date || '').localeCompare(a.date || ''))); 
+      };
+      useEffect(() => { load(); }, []);
+      const add = () => {
+        if(!form.category || !form.amount) return;
+        const data = Storage.get('transactions');
+        data.push({ ...form, amount: Number(form.amount), id: Date.now() });
+        Storage.set('transactions', data); load();
+        setForm({ ...form, category: '', amount: '' });
+      };
+      const del = (id) => {
+        if(!confirm('确定删除?')) return;
+        const data = Storage.get('transactions').filter(x => x.id !== id);
+        Storage.set('transactions', data); load();
+      };
+      return (
+        <div className="space-y-6">
+          <div className="glass-card p-4">
+            <div className="flex gap-2">
+              <select value={form.type} onChange={e => setForm({...form, type: e.target.value})} className="bg-black/20 border border-white/10 rounded p-2 text-white">
+                <option value="expense">支出</option><option value="income">收入</option>
+              </select>
+              <input value={form.category} onChange={e => setForm({...form, category: e.target.value})} placeholder="分类" className="flex-1 bg-black/20 border border-white/10 rounded p-2 text-white" />
+              <input value={form.amount} onChange={e => setForm({...form, amount: e.target.value})} placeholder="金额" type="number" className="w-24 bg-black/20 border border-white/10 rounded p-2 text-white" />
+              <button onClick={add} className="bg-green-600 px-4 rounded font-bold hover:bg-green-500">记一笔</button>
+            </div>
+          </div>
+          <div className="glass-card overflow-hidden">
+            <table className="w-full text-left">
+              <thead className="bg-white/5 text-gray-400 text-sm">
+                <tr><th className="p-3">日期</th><th className="p-3">分类</th><th className="p-3 text-right">金额</th><th className="p-3 text-center">操作</th></tr>
+              </thead>
+              <tbody className="divide-y divide-white/5 text-sm">
+                {list.map(t => (
+                  <tr key={t.id}>
+                    <td className="p-3 text-gray-400 font-mono">{t.date || '未知'}</td>
+                    <td className="p-3"><span className={`px-2 py-0.5 rounded text-xs ${t.type==='income'?'bg-green-500/20 text-green-400':'bg-red-500/20 text-red-400'}`}>{t.category || '未分类'}</span></td>
+                    <td className={`p-3 text-right font-bold ${t.type==='income'?'text-green-400':'text-white'}`}>{t.type==='income'?'+':'-'}{safeNum(t.amount, 0).toLocaleString()}</td>
+                    <td className="p-3 text-center"><button onClick={()=>del(t.id)} className="text-gray-500 hover:text-red-400">🗑️</button></td>
+                  </tr>
+                ))}
+                {list.length===0 && <tr><td colSpan="4" className="p-8 text-center text-gray-500">暂无记录</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      );
+    }
+
+    function CalculatorPage() {
+      const [input, setInput] = useState({ expense: '', income: '', price: '' });
+      const [res, setRes] = useState(null);
+      const [mode, setMode] = useState('freedom'); 
+      const runCalc = () => {
+        if (mode === 'freedom' && input.expense) setRes({ val: Number(input.expense) * 12 / 0.04 });
+        else if (mode === 'life' && input.income && input.price) {
+          const hourly = Number(input.income) / 22 / 8;
+          const hours = Number(input.price) / hourly;
+          setRes({ val: (hours / 8).toFixed(1), desc: '天' });
+        }
+      };
+      return (
+        <div className="glass-card p-6 max-w-md mx-auto mt-10">
+          <div className="flex gap-2 mb-6 border-b border-white/10 pb-2">
+            <button onClick={() => setMode('freedom')} className={`flex-1 py-1 ${mode === 'freedom' ? 'text-purple-400 border-b-2 border-purple-400' : 'text-gray-500'}`}>4%法则</button>
+            <button onClick={() => setMode('life')} className={`flex-1 py-1 ${mode === 'life' ? 'text-purple-400 border-b-2 border-purple-400' : 'text-gray-500'}`}>生命价值</button>
+          </div>
+          {mode === 'freedom' ? (
+            <div className="space-y-4"><label className="block text-sm text-gray-400">月支出 (元)</label><input value={input.expense} onChange={e => setInput({...input, expense: e.target.value})} type="number" className="w-full bg-black/20 border border-white/10 rounded p-2 text-white" /></div>
+          ) : (
+            <div className="space-y-4">
+              <label className="block text-sm text-gray-400">月薪 (元)</label><input value={input.income} onChange={e => setInput({...input, income: e.target.value})} type="number" className="w-full bg-black/20 border border-white/10 rounded p-2 text-white" />
+              <label className="block text-sm text-gray-400">商品价格 (元)</label><input value={input.price} onChange={e => setInput({...input, price: e.target.value})} type="number" className="w-full bg-black/20 border border-white/10 rounded p-2 text-white" />
+            </div>
+          )}
+          <button onClick={runCalc} className="w-full bg-purple-600 mt-6 py-2 rounded font-bold hover:bg-purple-500">计算</button>
+          {res && (
+            <div className="mt-6 p-4 bg-white/5 rounded border border-white/10 text-center">
+              <div className="text-sm text-gray-400 mb-1">{mode === 'freedom' ? '自由本金' : '工作时间'}</div>
+              <div className="text-3xl font-bold text-green-400">{mode === 'freedom' ? `¥${safeNum(res.val, 0).toLocaleString()}` : `${res.val} ${res.desc}`}</div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    function StatsPage() {
+      const [barData, setBarData] = useState([]);
+      const [pieData, setPieData] = useState([]);
+      useEffect(() => {
+        const t = Storage.get('transactions') || [];
+        const months = {}; const now = new Date();
+        for(let i=5; i>=0; i--) {
+           const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
+           const k = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+           months[k] = { income: 0, expense: 0, label: (d.getMonth()+1)+'月' };
+        }
+        t.forEach(x => { const k = x.date ? x.date.substring(0,7) : ''; if(months[k]) { if(x.type=='income') months[k].income+=safeNum(x.amount,0); else months[k].expense+=safeNum(x.amount,0); } });
+        setBarData(Object.values(months).map(m => ({ label: m.label, value: m.income > 0 ? ((m.income-m.expense)/m.income*100) : 0 })));
+        const cm = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+        const map = {};
+        t.filter(x => x.type === 'expense' && x.date && x.date.startsWith(cm)).forEach(x => { map[x.category || '未分类'] = (map[x.category || '未分类'] || 0) + safeNum(x.amount, 0); });
+        setPieData(Object.entries(map).map(([name, val], idx) => ({ name, val, color: ['#8b5cf6', '#ec4899', '#10b981', '#f59e0b'][idx%4] })));
+      }, []);
+      const getGradient = () => {
+        if(pieData.length === 0) return '#ccc';
+        const total = pieData.reduce((a,b)=>a+b.val, 0);
+        let start = 0;
+        const segments = pieData.map(d => {
+          const deg = (d.val / total) * 360;
+          const seg = `${d.color} ${start}deg ${start+deg}deg`;
+          start += deg;
+          return seg;
+        });
+        return `conic-gradient(${segments.join(', ')})`;
+      };
+      return (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="glass-card p-6">
+            <h3 className="text-lg font-bold mb-6 text-center">最近6个月储蓄率</h3>
+            <div className="simple-bar-chart flex items-end justify-around h-48">
+              {barData.map((d, i) => (
+                <div key={i} className="flex flex-col items-center w-1/6">
+                  <div className="text-xs text-gray-400 mb-1">{d.value.toFixed(0)}%</div>
+                  <div className="w-full bg-gradient-to-t from-purple-900 to-purple-500 rounded-t" style={{height: Math.max(Math.abs(d.value)*2, 5)+'%'}}></div>
+                  <div className="text-xs text-gray-500 mt-2">{d.label}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="glass-card p-6 flex flex-col items-center">
+            <h3 className="text-lg font-bold mb-6 w-full text-left">本月支出分类</h3>
+            <div className="w-40 h-40 rounded-full mb-4" style={{ background: getGradient() }}></div>
+            <div className="w-full space-y-2">
+              {pieData.map((d, i) => (
+                <div key={i} className="flex justify-between text-sm">
+                  <span className="flex items-center gap-2"><div className="w-3 h-3 rounded-full" style={{background:d.color}}></div>{d.name}</span>
+                  <span>¥{safeNum(d.val, 0).toLocaleString()}</span>
+                </div>
+              ))}
+              {pieData.length===0 && <div className="text-center text-gray-500">本月暂无支出</div>}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    window.onload = function() {
+      try { ReactDOM.createRoot(document.getElementById('root')).render(<App />); } 
+      catch (e) { document.body.innerHTML = `<div class="p-20 text-white">启动失败: ${e.message}</div>`; }
+    };
+  </script>
+</body>
+</html>

@@ -1,13 +1,19 @@
 {
   "$schema": "https://wails.io/schemas/config.v2.json",
   "name": "做T全能终端",
-  "outputfilename": "做T全能终端",
+  "outputfilename": "zuot-terminal",
   "frontend:install": "npm install",
   "frontend:build": "npm run build",
   "frontend:dev:watcher": "npm run dev",
   "frontend:dev:serverUrl": "auto",
   "author": {
-    "name": "",
+    "name": "QQQ",
     "email": ""
+  },
+  "info": {
+    "productName": "做T全能终端",
+    "productVersion": "1.0.0",
+    "companyName": "QQQ",
+    "comments": "本地离线的做T成本核算与交易记录工具"
   }
 }

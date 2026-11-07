@@ -6,6 +6,10 @@ on:
     tags:
       - "v*"
 
+env:
+  APP_NAME: zuot-terminal
+  DISPLAY_NAME: 做T全能终端
+
 jobs:
   build:
     runs-on: ubuntu-22.04
@@ -29,22 +33,29 @@ jobs:
         with:
           go-version: "1.23"
 
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
       - name: Install Wails
         run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.17.1
 
-      - name: Install frontend dependencies
-        run: npm ci
-        working-directory: frontend
-
-      - name: Build frontend
-        run: npm run build
-        working-directory: frontend
-
-      - name: Install webkit2gtk dev packages (linux only)
+      - name: Install Linux build dependencies
         if: matrix.target == 'linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libfuse2
+          sudo apt-get install -y \
+            libgtk-3-dev \
+            libwebkit2gtk-4.1-dev \
+            libfuse2 \
+            pkg-config
+
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
 
       - name: Build Wails app
         shell: bash
@@ -54,45 +65,127 @@ jobs:
         run: |
           export PATH="$HOME/go/bin:$PATH"
           if [ "${{ matrix.target }}" = "linux" ]; then
-            wails build -tags webkit2_41
+            wails build -tags webkit2_41 -skipbindings -s
           else
-            wails build
+            wails build -skipbindings -s
           fi
 
-      - name: Package Linux AppImage
-        if: matrix.target == 'linux'
+      - name: Verify build output
         shell: bash
         run: |
           set -e
-          curl -fsSL -o /tmp/appimagetool \
-            https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
-          chmod +x /tmp/appimagetool
-          APPDIR="$HOME/做T全能终端.AppDir"
-          mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/share/applications"
-          cp build/bin/做T全能终端 "$APPDIR/usr/bin/做T全能终端"
-          cp build/appicon.png "$APPDIR/做T全能终端.png"
-          cat > "$APPDIR/做T全能终端.desktop" <<EOF
+          ls -lh build/bin/
+          BIN="build/bin/${APP_NAME}"
+          if [ "${{ matrix.target }}" = "windows" ]; then BIN="${BIN}.exe"; fi
+          test -f "$BIN" || { echo "构建产物缺失: $BIN"; exit 1; }
+          echo "产物就绪: $(du -h "$BIN" | cut -f1)"
+
+      - name: Package AppImage
+        if: matrix.target == 'linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          BIN="build/bin/${APP_NAME}"
+          APPDIR="$RUNNER_TEMP/${APP_NAME}.AppDir"
+          mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/share/applications" "$APPDIR/usr/share/icons/hicolor/512x512/apps"
+
+          cp "$BIN" "$APPDIR/usr/bin/${APP_NAME}"
+          chmod +x "$APPDIR/usr/bin/${APP_NAME}"
+          cp build/appicon.png "$APPDIR/${APP_NAME}.png"
+          cp build/appicon.png "$APPDIR/usr/share/icons/hicolor/512x512/apps/${APP_NAME}.png"
+
+          cat > "$APPDIR/${APP_NAME}.desktop" <<'EOF'
           [Desktop Entry]
-          Version=1.0
           Type=Application
           Name=做T全能终端
-          Icon=做T全能终端
-          Exec=做T全能终端
+          Comment=本地离线的做T成本核算与交易记录工具
+          Exec=zuot-terminal
+          Icon=zuot-terminal
           Terminal=false
-          Categories=Utility;Development;
+          Categories=Office;Finance;
+          StartupWMClass=zuot-terminal
           EOF
-          cp "$APPDIR/做T全能终端.desktop" "$APPDIR/usr/share/applications/"
-          ln -sf usr/bin/做T全能终端 "$APPDIR/AppRun"
-          chmod +x "$APPDIR/usr/bin/做T全能终端"
-          ARCH=x86_64 /tmp/appimagetool "$APPDIR" build/bin/做T全能终端-x86_64.AppImage
+          # 去掉 heredoc 前导空格
+          sed -i 's/^          //' "$APPDIR/${APP_NAME}.desktop"
+          cp "$APPDIR/${APP_NAME}.desktop" "$APPDIR/usr/share/applications/"
+
+          # AppRun 启动脚本（不用符号链接，避免部分环境下解析失败）
+          cat > "$APPDIR/AppRun" <<'EOF'
+          #!/bin/sh
+          HERE="$(dirname "$(readlink -f "$0")")"
+          exec "$HERE/usr/bin/zuot-terminal" "$@"
+          EOF
+          chmod +x "$APPDIR/AppRun"
+
+          curl -fsSL -o "$RUNNER_TEMP/appimagetool" \
+            https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x "$RUNNER_TEMP/appimagetool"
+
+          cd "$RUNNER_TEMP"
+          ARCH=x86_64 ./appimagetool --appimage-extract >/dev/null 2>&1 || true
+          ARCH=x86_64 ./appimagetool "${APP_NAME}.AppDir" "build-${APP_NAME}-x86_64.AppImage"
+          mv -f "build-${APP_NAME}-x86_64.AppImage" "$GITHUB_WORKSPACE/build/bin/${APP_NAME}-x86_64.AppImage"
+
+      - name: Package deb
+        if: matrix.target == 'linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          [ -z "$VERSION" ] && VERSION="0.0.0-dev"
+          PKGROOT="$RUNNER_TEMP/deb"
+          mkdir -p "$PKGROOT/DEBIAN" \
+                   "$PKGROOT/usr/bin" \
+                   "$PKGROOT/usr/share/applications" \
+                   "$PKGROOT/usr/share/icons/hicolor/512x512/apps"
+
+          cp "build/bin/${APP_NAME}" "$PKGROOT/usr/bin/${APP_NAME}"
+          chmod 755 "$PKGROOT/usr/bin/${APP_NAME}"
+          cp build/appicon.png "$PKGROOT/usr/share/icons/hicolor/512x512/apps/${APP_NAME}.png"
+          cp "build/bin/${APP_NAME}.desktop" "$PKGROOT/usr/share/applications/" 2>/dev/null || {
+            cat > "$PKGROOT/usr/share/applications/${APP_NAME}.desktop" <<'EOF'
+          [Desktop Entry]
+          Type=Application
+          Name=做T全能终端
+          Comment=本地离线的做T成本核算与交易记录工具
+          Exec=zuot-terminal
+          Icon=zuot-terminal
+          Terminal=false
+          Categories=Office;Finance;
+          StartupWMClass=zuot-terminal
+          EOF
+            sed -i 's/^          //' "$PKGROOT/usr/share/applications/${APP_NAME}.desktop"
+          }
+
+          INSTALLED_SIZE=$(du -sk "$PKGROOT" | cut -f1)
+          cat > "$PKGROOT/DEBIAN/control" <<EOF
+          Package: ${APP_NAME}
+          Version: ${VERSION}
+          Section: office
+          Priority: optional
+          Architecture: amd64
+          Installed-Size: ${INSTALLED_SIZE}
+          Depends: libgtk-3-0, libwebkit2gtk-4.1-0
+          Maintainer: QQQ <noreply@example.com>
+          Description: 做T全能终端
+           本地离线的做T成本核算与交易记录工具，支持持仓成本摊薄、.
+           交易收益计算、复利计算与个人记账。全部数据保存在本机。.
+          EOF
+          sed -i 's/^          //' "$PKGROOT/DEBIAN/control"
+
+          dpkg-deb --root-owner-group --build "$PKGROOT" \
+            "build/bin/${APP_NAME}_${VERSION}_amd64.deb"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: 做T全能终端-${{ matrix.target }}
+          name: ${{ env.APP_NAME }}-${{ matrix.target }}
           path: |
-            build/bin/做T全能终端*
-          if-no-files-found: ignore
+            build/bin/${{ env.APP_NAME }}
+            build/bin/${{ env.APP_NAME }}.exe
+            build/bin/${{ env.APP_NAME }}-x86_64.AppImage
+            build/bin/${{ env.APP_NAME }}_*_amd64.deb
+          if-no-files-found: error
 
   release:
     needs: build
@@ -102,14 +195,37 @@ jobs:
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: List collected files
+        run: find artifacts -type f -exec ls -lh {} \;
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
           name: 做T全能终端 ${{ github.ref_name }}
+          body: |
+            ## 做T全能终端 ${{ github.ref_name }}
+
+            Go + Wails 桌面应用，本地离线，数据存于 `~/.local/share/zuot-terminal/data.json`。
+
+            ### Linux
+            - `zuot-terminal-x86_64.AppImage` — 免安装，`chmod +x` 后直接运行
+            - `zuot-terminal_<ver>_amd64.deb` — 系统级安装
+
+            ### Windows
+            - `zuot-terminal.exe`
+
+            ### 功能
+            - 持仓成本摊薄（做T / 加仓 / 减仓，扣真实手续费）
+            - 交易收益计算器（佣金 + 印花税 + 过户费）
+            - 普通计算器 + 复利计算器（含反向求解）
+            - 记账 / 目标 / 4% 法则 / 图表统计
           files: |
-            做T全能终端-linux/做T全能终端
-            做T全能终端-linux/做T全能终端-x86_64.AppImage
-            做T全能终端-windows/做T全能终端.exe
+            artifacts/**/*.AppImage
+            artifacts/**/*.deb
+            artifacts/**/*.exe
           generate_release_notes: true
+          fail_on_unmatched_files: false
