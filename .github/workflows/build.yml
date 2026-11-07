@@ -82,7 +82,9 @@ jobs:
           Categories=Utility;Development;
           EOF
           cp "$APPDIR/做T全能终端.desktop" "$APPDIR/usr/share/applications/"
-          /tmp/appimagetool "$APPDIR" build/bin/做T全能终端-x86_64.AppImage
+          ln -sf usr/bin/做T全能终端 "$APPDIR/AppRun"
+          chmod +x "$APPDIR/usr/bin/做T全能终端"
+          ARCH=x86_64 /tmp/appimagetool "$APPDIR" build/bin/做T全能终端-x86_64.AppImage
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
